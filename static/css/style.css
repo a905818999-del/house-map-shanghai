@@ -1,0 +1,299 @@
+/* 上海房龄房价地图 - 样式表 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary-color: #2563eb;
+    --secondary-color: #64748b;
+    --bg-color: #f8fafc;
+    --sidebar-width: 320px;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg-color);
+    color: #1e293b;
+}
+
+/* 主布局 */
+.container {
+    display: flex;
+    height: 100vh;
+}
+
+/* 侧边栏 */
+.sidebar {
+    width: var(--sidebar-width);
+    background: white;
+    border-right: 1px solid #e2e8f0;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.sidebar-header h1 {
+    font-size: 1.25rem;
+    color: #0f172a;
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    font-size: 0.875rem;
+    color: var(--secondary-color);
+}
+
+/* 筛选器 */
+.filters {
+    background: #f1f5f9;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.filters h3 {
+    font-size: 0.875rem;
+    margin-bottom: 12px;
+    color: #475569;
+}
+
+.filter-group {
+    margin-bottom: 12px;
+}
+
+.filter-group label {
+    display: block;
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.filter-group select,
+.filter-group input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.875rem;
+}
+
+.range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.range-inputs input {
+    flex: 1;
+}
+
+.range-inputs span {
+    color: #94a3b8;
+}
+
+/* 按钮 */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: white;
+    width: 100%;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+}
+
+.btn-secondary {
+    background: #e2e8f0;
+    color: #475569;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.btn-secondary:hover {
+    background: #cbd5e1;
+}
+
+/* 图例 */
+.legend {
+    background: #f1f5f9;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.legend h3 {
+    font-size: 0.875rem;
+    margin-bottom: 12px;
+    color: #475569;
+}
+
+.legend-section {
+    margin-bottom: 12px;
+}
+
+.legend-section h4 {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.color-scale {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.color-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: #475569;
+}
+
+.color-box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+/* 房价颜色 */
+.price-low { background: #22c55e; }
+.price-medium-low { background: #84cc16; }
+.price-medium { background: #eab308; }
+.price-medium-high { background: #f97316; }
+.price-high { background: #ef4444; }
+
+/* 楼龄颜色 */
+.age-new { background: #22c55e; }
+.age-medium-new { background: #84cc16; }
+.age-medium { background: #eab308; }
+.age-old { background: #f97316; }
+.age-very-old { background: #ef4444; }
+
+/* 统计 */
+.stats {
+    background: #f1f5f9;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.stats h3 {
+    font-size: 0.875rem;
+    margin-bottom: 12px;
+    color: #475569;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.stat-item:last-child {
+    border-bottom: none;
+}
+
+.stat-label {
+    color: #64748b;
+    font-size: 0.875rem;
+}
+
+.stat-value {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+/* 主内容 */
+.main-content {
+    flex: 1;
+    position: relative;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+/* 视图切换 */
+.view-controls {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    gap: 8px;
+}
+
+.btn-view {
+    background: white;
+    color: #475569;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.btn-view.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* 弹窗 */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 2000;
+}
+
+.modal-content {
+    position: relative;
+    background: white;
+    margin: 10% auto;
+    padding: 24px;
+    width: 400px;
+    border-radius: 12px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 24px;
+    cursor: pointer;
+    color: #94a3b8;
+}
+
+.modal-close:hover {
+    color: #475569;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        height: auto;
+        max-height: 40vh;
+    }
+    
+    .main-content {
+        height: 60vh;
+    }
+}

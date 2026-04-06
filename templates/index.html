@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>上海房龄+房价可视化地图</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <h1>🏠 上海房龄房价地图</h1>
+                <p class="subtitle">小区可视化分析系统</p>
+            </header>
+            
+            <!-- 筛选器 -->
+            <section class="filters">
+                <h3>🔍 筛选条件</h3>
+                
+                <div class="filter-group">
+                    <label>行政区</label>
+                    <select id="district-filter">
+                        <option value="">全部区域</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>单价 (元/㎡)</label>
+                    <div class="range-inputs">
+                        <input type="number" id="min-price" placeholder="最低" min="0">
+                        <span>~</span>
+                        <input type="number" id="max-price" placeholder="最高" min="0">
+                    </div>
+                </div>
+                
+                <div class="filter-group">
+                    <label>房龄 (年)</label>
+                    <div class="range-inputs">
+                        <input type="number" id="min-age" placeholder="最短" min="0">
+                        <span>~</span>
+                        <input type="number" id="max-age" placeholder="最长" min="0">
+                    </div>
+                </div>
+                
+                <div class="filter-group">
+                    <label>关键词搜索</label>
+                    <input type="text" id="keyword" placeholder="小区名称...">
+                </div>
+                
+                <button id="apply-filters" class="btn btn-primary">应用筛选</button>
+                <button id="reset-filters" class="btn btn-secondary">重置</button>
+            </section>
+            
+            <!-- 图例 -->
+            <section class="legend">
+                <h3>📊 图例说明</h3>
+                
+                <div class="legend-section">
+                    <h4>房价 (元/㎡)</h4>
+                    <div class="color-scale">
+                        <div class="color-item"><span class="color-box price-low"></span> &lt;4万 (低价)</div>
+                        <div class="color-item"><span class="color-box price-medium-low"></span> 4-6万</div>
+                        <div class="color-item"><span class="color-box price-medium"></span> 6-8万</div>
+                        <div class="color-item"><span class="color-box price-medium-high"></span> 8-10万</div>
+                        <div class="color-item"><span class="color-box price-high"></span> &gt;10万 (高价)</div>
+                    </div>
+                </div>
+                
+                <div class="legend-section">
+                    <h4>楼龄 (年)</h4>
+                    <div class="color-scale">
+                        <div class="color-item"><span class="color-box age-new"></span> 0-5年 (新房)</div>
+                        <div class="color-item"><span class="color-box age-medium-new"></span> 5-10年</div>
+                        <div class="color-item"><span class="color-box age-medium"></span> 10-15年</div>
+                        <div class="color-item"><span class="color-box age-old"></span> 15-20年</div>
+                        <div class="color-item"><span class="color-box age-very-old"></span> &gt;20年 (老旧)</div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 统计信息 -->
+            <section class="stats">
+                <h3>📈 数据统计</h3>
+                <div id="stats-content">
+                    <div class="stat-item">
+                        <span class="stat-label">小区总数</span>
+                        <span class="stat-value" id="total-communities">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">平均单价</span>
+                        <span class="stat-value" id="avg-price">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">平均房龄</span>
+                        <span class="stat-value" id="avg-age">-</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+        
+        <!-- 主地图区域 -->
+        <main class="main-content">
+            <div id="map"></div>
+            
+            <!-- 切换视图模式 -->
+            <div class="view-controls">
+                <button id="view-price" class="btn btn-view active">房价视图</button>
+                <button id="view-age" class="btn btn-view">楼龄视图</button>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 小区详情弹窗 -->
+    <div id="community-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="/static/js/map.js"></script>
+    <script src="/static/js/filters.js"></script>
+    <script src="/static/js/utils.js"></script>
+</body>
+</html>
