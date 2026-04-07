@@ -180,6 +180,78 @@ data/processed/communities.json  ← 前端直接读取
 
 | 阶段 | 目标 | 说明 |
 |------|------|------|
-| 第一批 | ≥ 200 个小区 | 长宁区 + 闵行区 |
-| 第二批 | ≥ 2000 个小区 | 覆盖全上海 15 个区 |
+| ~~第一批~~ | ~~≥ 200 个小区~~ | ✅ Claude 已用开源数据完成（10,305 个小区） |
+| **第二阶段** | 长宁+闵行参考均价 | 链家小区详情页「参考均价」字段（约 1755 个） |
+| 第三阶段 | 全上海参考均价 | 同上，扩展到全部 10,305 个小区 |
+
+---
+
+## 第二阶段任务：补充链家「参考均价」
+
+### 背景
+
+现有 `avg_price` 字段来自链家挂牌房源均价（报价），精度一般。
+链家小区详情页有「**参考均价**」字段，基于近期真实成交均价，更准。
+
+目标：用参考均价**替换**现有挂牌均价。
+
+### 输入（已提供）
+
+项目 `data/processed/communities.json` 中每个小区有 `source_url` 字段：
+
+```
+"source_url": "https://sh.lianjia.com/xiaoqu/310112077000001.html"
+```
+
+WorkBuddy 直接用这批 URL 访问对应小区详情页，抓「参考均价」。
+
+**优先处理长宁区+闵行区**（按 district 字段筛选）
+
+### 抓取目标
+
+链家小区详情页：`https://sh.lianjia.com/xiaoqu/{id}.html`
+
+| 目标字段 | 页面位置 |
+|----------|---------|
+| 参考均价 | 页面右上方「参考均价 XX,XXX元/㎡」 |
+| 最近成交 | 「最近成交 YYYY.MM」（可选） |
+
+### 输出格式
+
+**文件路径**：`data/raw/lianjia_ref_price_{YYYYMMDD}.json`
+
+```json
+{
+  "_meta": {
+    "source": "lianjia_ref_price",
+    "crawled_at": "2024-04-07T10:00:00Z",
+    "total": 500,
+    "crawler": "WorkBuddy",
+    "note": "参考均价，基于近期成交，单位元/平方米"
+  },
+  "ref_prices": [
+    {
+      "source_url": "https://sh.lianjia.com/xiaoqu/310112077000001.html",
+      "ref_price": 95000,
+      "last_deal": "2024.03"
+    }
+  ]
+}
+```
+
+### 字段规范
+
+| 字段 | 类型 | 规范 |
+|------|------|------|
+| `source_url` | string | 与 communities.json 中完全一致，作为关联 key |
+| `ref_price` | number | 元/平方米，整数；页面无数据填 `null` |
+| `last_deal` | string \| null | 格式 `"YYYY.MM"`；无则填 `null` |
+
+### 交付检查清单
+
+- [ ] 文件放在 `data/raw/` 目录下
+- [ ] JSON 格式合法
+- [ ] `ref_price` 单位是元/平方米（不是万元）
+- [ ] `source_url` 与 communities.json 中的 URL 完全一致（作为合并 key）
+- [ ] `_meta.total` 与 `ref_prices` 数组长度一致
 | 理想状态 | 5000+ 个小区 | 参考链家约有 14,000+ 上海小区 |

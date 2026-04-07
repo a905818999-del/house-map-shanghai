@@ -82,21 +82,25 @@ python scripts/fetch_opensource.py
 
 > **详见 [`DATA_SPEC.md`](DATA_SPEC.md)**，里面有完整的字段规范、抓取目标和交付检查清单。
 
-### 第一批（目标 ≥200 个小区）
+### ✅ 已完成（Claude 用开源数据替代）
+- 10,305 个上海小区坐标 + 挂牌均价 + 建成年份（WxxW2002/Spider 2023年数据）
+- 覆盖全上海 16 个区，**长宁 710 个，闵行 1045 个**
 
-- [ ] **[WorkBuddy]** 抓取链家上海小区数据
-  - 覆盖区：**长宁区、闵行区**
-  - 必须字段：`name / district / lat / lng / avg_price / build_year`
-  - 输出：`data/raw/lianjia_{YYYYMMDD}.json`
-  - 格式参考：`DATA_SPEC.md` → 「输出格式」一节
+### 第二阶段：补充链家「参考均价」（成交价，比挂牌价更准）
 
-- [ ] **[WorkBuddy]** 自查交付（DATA_SPEC.md 检查清单）
+**背景**：现有 avg_price 是挂牌均价（报价），链家小区详情页有「参考均价」字段，
+基于近期真实成交记录，更接近真实市场价格。
 
-- [ ] **[Claude]** 收到后运行清洗脚本 → 更新 `data/processed/communities.json`
+- [ ] **[WorkBuddy]** 抓取链家小区详情页「参考均价」
+  - 输入：项目已提供 10,305 个小区的链家 URL（`source_url` 字段）
+  - 目标字段：`参考均价`（元/平方米）、`最近成交`（时间，可选）
+  - 优先覆盖：**长宁区、闵行区**（共约 1755 个小区）
+  - 输出：`data/raw/lianjia_ref_price_{YYYYMMDD}.json`
+  - 格式参考：`DATA_SPEC.md` → 「参考均价补充格式」一节
 
-### 第二批（目标 ≥2000 个小区，全上海）
+- [ ] **[WorkBuddy]** 自查交付
 
-- [ ] **[WorkBuddy]** 覆盖剩余 10 个区：宝山、嘉定、松江、青浦、奉贤、金山、虹口、杨浦、黄浦、普陀
+- [ ] **[Claude]** 收到后运行 `scripts/merge_ref_price.py` 合并进 communities.json
 
 ---
 
