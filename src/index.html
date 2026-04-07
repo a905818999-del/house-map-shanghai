@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上海房源地图 · 房龄 + 房价可视化</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ LEFT SIDEBAR ══ -->
+  <div id="sidebar">
+
+    <div class="sidebar-header">
+      <h1>🏠 上海房源地图</h1>
+      <div class="subtitle">房龄 + 均价可视化 · 以小区为单位</div>
+    </div>
+
+    <!-- API Key -->
+    <div class="api-key-section">
+      <label>🔑 高德 Web JS API Key
+        <a href="https://console.amap.com/dev/key/app" target="_blank">申请 →</a>
+      </label>
+      <div class="api-key-row">
+        <input type="text" id="api-key-input" placeholder="粘贴 Key，回车加载…"
+               autocomplete="off" onkeydown="if(event.key==='Enter')App.initMap()">
+        <button class="btn-primary" onclick="App.initMap()">加载地图</button>
+      </div>
+    </div>
+
+    <!-- File upload -->
+    <div class="file-upload-section">
+      <button class="btn-file" onclick="App.openFilePicker()">
+        📂 本地打开 communities.json
+      </button>
+      <div class="file-hint">或拖拽 JSON 到地图区域</div>
+    </div>
+
+    <!-- Scrollable Body -->
+    <div class="sidebar-body">
+
+      <!-- Stats -->
+      <div class="section">
+        <div class="section-title">数据概览</div>
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total">—</div>
+            <div class="stat-label">显示小区</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-avg-price">—</div>
+            <div class="stat-label">均价均值</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-avg-year">—</div>
+            <div class="stat-label">平均建成年</div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Color Mode -->
+      <div class="section">
+        <div class="section-title">颜色模式</div>
+        <div class="mode-toggle">
+          <button class="mode-btn active" id="mode-price" onclick="App.setMode('price')">
+            💰 按均价
+          </button>
+          <button class="mode-btn" id="mode-year" onclick="App.setMode('year')">
+            🏗 按楼龄
+          </button>
+        </div>
+        <button class="btn-heatmap" id="btn-heatmap" onclick="App.toggleHeatmap()">
+          🔥 热力图叠加
+        </button>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Search -->
+      <div class="section">
+        <div class="section-title">搜索小区</div>
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="小区名关键词…"
+                 oninput="App.applyFilters()">
+          <span class="search-icon">🔍</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- District -->
+      <div class="section">
+        <div class="section-title">行政区</div>
+        <div class="district-list" id="district-list">
+          <div style="color:#bbb;font-size:12px">加载数据后自动生成…</div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Price Filter -->
+      <div class="section">
+        <div class="section-title">均价区间（元/㎡）</div>
+        <div class="range-group">
+          <div class="range-label">最低 <span id="price-min-val">0</span></div>
+          <input type="range" id="price-min" min="0" max="200000" step="5000" value="0"
+                 oninput="App.onPriceRangeChange()">
+        </div>
+        <div class="range-group">
+          <div class="range-label">最高 <span id="price-max-val">20万+</span></div>
+          <input type="range" id="price-max" min="0" max="200000" step="5000" value="200000"
+                 oninput="App.onPriceRangeChange()">
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Year Filter -->
+      <div class="section">
+        <div class="section-title">建成年份区间</div>
+        <div class="range-group">
+          <div class="range-label">最早 <span id="year-min-val">1970</span></div>
+          <input type="range" id="year-min" min="1970" max="2024" step="1" value="1970"
+                 oninput="App.onYearRangeChange()">
+        </div>
+        <div class="range-group">
+          <div class="range-label">最晚 <span id="year-max-val">2024</span></div>
+          <input type="range" id="year-max" min="1970" max="2024" step="1" value="2024"
+                 oninput="App.onYearRangeChange()">
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Legend -->
+      <div class="section">
+        <div class="section-title">图例</div>
+        <div id="legend-content"></div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Result List -->
+      <div class="section">
+        <div class="list-header">
+          <div class="section-title" style="margin:0">
+            结果列表 <span class="list-count" id="list-count"></span>
+          </div>
+          <span class="list-sort" id="list-sort-label"></span>
+        </div>
+        <div id="results-list" class="results-list">
+          <div class="list-empty">加载数据后显示…</div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Actions -->
+      <div class="section">
+        <div class="action-row">
+          <button class="btn-reset" onclick="App.resetFilters()">↺ 重置筛选</button>
+          <button class="btn-export" onclick="App.exportCsv()">⬇ 导出 CSV</button>
+        </div>
+      </div>
+
+    </div><!-- /sidebar-body -->
+  </div><!-- /sidebar -->
+
+  <!-- ══ MAP AREA ══ -->
+  <div id="map-container">
+    <div id="map-loading">
+      <div class="spinner"></div>
+      <div>输入 API Key 后点击「加载地图」</div>
+      <div style="margin-top:8px;font-size:12px;color:#999">
+        也可直接拖拽 communities.json 到此处预览数据结构
+      </div>
+    </div>
+    <div id="map"></div>
+    <div id="status-bar">就绪</div>
+    <div class="no-data-msg" id="no-data-msg">😶 当前筛选条件下没有小区数据</div>
+  </div>
+
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
