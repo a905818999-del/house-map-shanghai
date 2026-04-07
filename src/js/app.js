@@ -335,34 +335,47 @@ const App = (() => {
 
   function buildMarkers(data, zoom) {
     clearMarkers();
-    const showName = zoom >= ZOOM_SPARSE;   // zoom≥12 显示小区名
-    const compact  = zoom < ZOOM_SPARSE;    // zoom<12 仅显示数值
+    const compact = zoom < ZOOM_SPARSE;   // zoom<12 仅显示数值
+    const detail  = zoom >= ZOOM_DETAIL;  // zoom≥14 显示小区名+副值
 
     data.forEach(c => {
       const color = getColor(c);
-
-      const priceVal = c.avg_price != null
-        ? `${(c.avg_price / 10000).toFixed(1)}万`
-        : '暂无';
-      const yearVal  = c.build_year != null ? `${c.build_year}年` : '暂无';
-      const mainVal  = colorMode === 'price' ? priceVal : yearVal;
-      const subVal   = colorMode === 'price' ? yearVal  : priceVal;
+      const price = c.avg_price != null ? `${(c.avg_price / 10000).toFixed(1)}万` : null;
+      const year  = c.build_year != null ? `${c.build_year}` : null;
+      const age   = c.build_year != null ? `${2024 - c.build_year}年` : null;
 
       const el = document.createElement('div');
-      el.className = 'badge-wrap';
+      el.className = 'mk-wrap';
 
       if (compact) {
+        // 紧凑：只有色块+主值，极小体积
+        const val = colorMode === 'price' ? (price ?? '—') : (year ? year + '年' : '—');
         el.innerHTML =
-          `<div class="badge-box compact" style="background:${color}">${escHtml(mainVal)}</div>` +
-          `<div class="badge-tip" style="border-top-color:${color}"></div>`;
-      } else {
-        const sub = zoom >= ZOOM_DETAIL ? `<span class="badge-sub"> ${escHtml(subVal)}</span>` : '';
+          `<div class="mk-pill" style="background:${color}">${escHtml(val)}</div>` +
+          `<div class="mk-arrow" style="border-top-color:${color}"></div>`;
+      } else if (!detail) {
+        // 中等：白卡片，左色条，价格+年份
         el.innerHTML =
-          `<div class="badge-box" style="background:${color}">` +
-            `<span class="badge-name">${escHtml(c.name)}</span>` +
-            `<span class="badge-main"> ${escHtml(mainVal)}</span>${sub}` +
+          `<div class="mk-card">` +
+            `<div class="mk-stripe" style="background:${color}"></div>` +
+            `<div class="mk-body">` +
+              `<div class="mk-price" style="color:${color}">${escHtml(price ?? '—')}</div>` +
+              `<div class="mk-meta">${year ? escHtml(year) + '年建' : '年份未知'}</div>` +
+            `</div>` +
           `</div>` +
-          `<div class="badge-tip" style="border-top-color:${color}"></div>`;
+          `<div class="mk-card-arrow"></div>`;
+      } else {
+        // 详细：显示小区名+价格+房龄
+        el.innerHTML =
+          `<div class="mk-card mk-card-lg">` +
+            `<div class="mk-stripe" style="background:${color}"></div>` +
+            `<div class="mk-body">` +
+              `<div class="mk-name">${escHtml(c.name)}</div>` +
+              `<div class="mk-price" style="color:${color}">${escHtml(price ?? '价格未知')}</div>` +
+              `<div class="mk-meta">${year ? escHtml(year) + '年 · ' + escHtml(age) + '房龄' : '年份未知'}</div>` +
+            `</div>` +
+          `</div>` +
+          `<div class="mk-card-arrow"></div>`;
       }
 
       const m = new AMap.Marker({

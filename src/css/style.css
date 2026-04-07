@@ -409,102 +409,99 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
 }
 
-/* ── Badge Marker（气泡标签样式）── */
+/* ── Marker 标签样式（重构版）── */
 
-/* 外层容器：flex 纵向，底部指针对齐坐标点 */
-.badge-wrap {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
+/* 外层容器：block，底部对齐坐标点（anchor: bottom-center） */
+.mk-wrap {
+  display: block;
+  text-align: center;
   cursor: pointer;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.22));
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.18));
   transition: filter 0.12s, transform 0.12s;
+  line-height: 1;
 }
-.badge-wrap:hover {
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.32));
+.mk-wrap:hover {
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.28));
   transform: translateY(-2px);
   z-index: 999 !important;
 }
 
-/* 标签主体 */
-.badge-box {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 20px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  line-height: 1.2;
-  max-width: 160px;
-}
-
-/* 紧凑模式（zoom 10-12，仅数值） */
-.badge-box.compact {
+/* ── 紧凑模式（zoom 10-12）：纯色小药丸 ── */
+.mk-pill {
+  display: inline-block;
   padding: 4px 9px;
+  border-radius: 12px;
+  color: #fff;
   font-size: 11px;
-  border-radius: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.mk-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top-width: 6px;
+  border-top-style: solid;
+  margin-top: -1px;
 }
 
-/* 小区名（超长截断） */
-.badge-name {
-  max-width: 72px;
+/* ── 卡片模式（zoom 12-14 / ≥14）：白底卡片 ── */
+.mk-card {
+  display: inline-flex;
+  align-items: stretch;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  min-width: 68px;
+  text-align: left;
+}
+.mk-card-lg {
+  min-width: 96px;
+}
+.mk-stripe {
+  width: 4px;
+  flex-shrink: 0;
+}
+.mk-body {
+  padding: 5px 8px 5px 7px;
+}
+.mk-price {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  letter-spacing: -0.3px;
+}
+.mk-meta {
+  font-size: 10px;
+  color: #888;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.mk-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.95;
-  font-weight: 600;
 }
-
-/* 分隔符 */
-.badge-divider {
-  opacity: 0.5;
-  font-weight: 300;
-  font-size: 11px;
-}
-
-/* 主数值（价格/年份） */
-.badge-main {
-  font-weight: 700;
-  font-size: 13px;
-}
-
-/* 副数值（zoom≥14 显示） */
-.badge-sub {
-  font-size: 10px;
-  opacity: 0.85;
-  font-weight: 500;
-}
-
-/* 底部三角指针 */
-.badge-tip {
+/* 卡片底部白色指针 */
+.mk-card-arrow {
+  display: block;
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top-width: 7px;
-  border-top-style: solid;
-  /* border-top-color 由 inline style 注入，与 badge-box 背景色一致 */
-  margin-top: -1px; /* 与主体无缝衔接 */
-}
-
-/* 兼容旧圆形 marker（列表飞跳时可能用到） */
-.community-marker {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.25);
-  text-align: center;
-  white-space: nowrap;
+  border-top: 7px solid #fff;
+  margin: -1px auto 0;
+  filter: drop-shadow(0 2px 1px rgba(0,0,0,0.08));
 }
 
 /* ── Info Window ── */
