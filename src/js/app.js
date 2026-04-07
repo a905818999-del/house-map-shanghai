@@ -333,49 +333,64 @@ const App = (() => {
     infoWindow?.close();
   }
 
+  /** 生成楼龄分段进度条 HTML（10格，蓝/紫色 = 已过年份，灰 = 剩余） */
+  function buildAgeBar(buildYear, segs = 10) {
+    if (!buildYear) {
+      return Array(segs).fill('<div class="mk-age-seg"></div>').join('');
+    }
+    const age = 2024 - buildYear;
+    const maxAge = 50;
+    const filled = Math.min(Math.round((age / maxAge) * segs), segs);
+    const isOld = age > 35;
+    return Array.from({ length: segs }, (_, i) => {
+      const cls = i < filled ? (isOld ? 'mk-age-seg filled old' : 'mk-age-seg filled') : 'mk-age-seg';
+      return `<div class="${cls}"></div>`;
+    }).join('');
+  }
+
   function buildMarkers(data, zoom) {
     clearMarkers();
-    const compact = zoom < ZOOM_SPARSE;   // zoom<12 仅显示数值
-    const detail  = zoom >= ZOOM_DETAIL;  // zoom≥14 显示小区名+副值
+    const compact = zoom < ZOOM_SPARSE;   // zoom<12 胶囊
+    const detail  = zoom >= ZOOM_DETAIL;  // zoom≥14 含小区名
 
     data.forEach(c => {
       const color = getColor(c);
-      const price = c.avg_price != null ? `${(c.avg_price / 10000).toFixed(1)}万` : null;
-      const year  = c.build_year != null ? `${c.build_year}` : null;
-      const age   = c.build_year != null ? `${2024 - c.build_year}年` : null;
+      const price = c.avg_price != null ? `${(c.avg_price / 10000).toFixed(1)}万` : '—';
+      const year  = c.build_year ?? null;
+      const age   = year ? 2024 - year : null;
 
       const el = document.createElement('div');
       el.className = 'mk-wrap';
 
       if (compact) {
-        // 紧凑：只有色块+主值，极小体积
-        const val = colorMode === 'price' ? (price ?? '—') : (year ? year + '年' : '—');
+        // 紧凑：彩色胶囊，只显示价格
         el.innerHTML =
-          `<div class="mk-pill" style="background:${color}">${escHtml(val)}</div>` +
-          `<div class="mk-arrow" style="border-top-color:${color}"></div>`;
-      } else if (!detail) {
-        // 中等：白卡片，左色条，价格+年份
+          `<div class="mk-pill" style="background:${color}">${escHtml(price)}</div>` +
+          `<div class="mk-pill-tip" style="border-top-color:${color}"></div>`;
+      } else {
+        // 卡片模式：白底，价格（彩色）+ 楼龄（蓝色进度条，独立维度）
+        const ageBar = buildAgeBar(year);
+        const ageText = year ? `${year}` : '未知';
+        const nameRow = detail
+          ? `<div class="mk-card-name-row">${escHtml(c.name)}</div>`
+          : '';
         el.innerHTML =
           `<div class="mk-card">` +
-            `<div class="mk-stripe" style="background:${color}"></div>` +
-            `<div class="mk-body">` +
-              `<div class="mk-price" style="color:${color}">${escHtml(price ?? '—')}</div>` +
-              `<div class="mk-meta">${year ? escHtml(year) + '年建' : '年份未知'}</div>` +
+            nameRow +
+            `<div class="mk-card-price-row">` +
+              `<div class="mk-price-dot" style="background:${color}"></div>` +
+              `<div class="mk-price-val" style="color:${color}">${escHtml(price)}</div>` +
+              `<div class="mk-price-unit">/㎡</div>` +
+            `</div>` +
+            `<div class="mk-card-age-row">` +
+              `<div class="mk-age-header">` +
+                `<span class="mk-age-label">楼龄</span>` +
+                `<span class="mk-age-year">${escHtml(ageText)}${age ? `·${age}年` : ''}</span>` +
+              `</div>` +
+              `<div class="mk-age-bar">${ageBar}</div>` +
             `</div>` +
           `</div>` +
-          `<div class="mk-card-arrow"></div>`;
-      } else {
-        // 详细：显示小区名+价格+房龄
-        el.innerHTML =
-          `<div class="mk-card mk-card-lg">` +
-            `<div class="mk-stripe" style="background:${color}"></div>` +
-            `<div class="mk-body">` +
-              `<div class="mk-name">${escHtml(c.name)}</div>` +
-              `<div class="mk-price" style="color:${color}">${escHtml(price ?? '价格未知')}</div>` +
-              `<div class="mk-meta">${year ? escHtml(year) + '年 · ' + escHtml(age) + '房龄' : '年份未知'}</div>` +
-            `</div>` +
-          `</div>` +
-          `<div class="mk-card-arrow"></div>`;
+          `<div class="mk-card-tip"></div>`;
       }
 
       const m = new AMap.Marker({

@@ -409,99 +409,157 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
 }
 
-/* ── Marker 标签样式（重构版）── */
+/* ── Marker 双维度数据卡片 ── */
 
-/* 外层容器：block，底部对齐坐标点（anchor: bottom-center） */
+/*
+ * 定位修复：display:block + width:max-content
+ * AMap anchor:'bottom-center' 需要元素有确定的 block 尺寸
+ * inline-flex/inline-block 会导致 AMap 计算偏移错误
+ */
 .mk-wrap {
   display: block;
-  text-align: center;
+  width: max-content;
   cursor: pointer;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.18));
-  transition: filter 0.12s, transform 0.12s;
-  line-height: 1;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.14));
+  transition: filter 0.15s, transform 0.15s;
+  font-family: 'PingFang SC', -apple-system, 'Microsoft YaHei', sans-serif;
 }
 .mk-wrap:hover {
-  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.28));
+  filter: drop-shadow(0 5px 14px rgba(0,0,0,0.24));
   transform: translateY(-2px);
   z-index: 999 !important;
 }
 
-/* ── 紧凑模式（zoom 10-12）：纯色小药丸 ── */
+/* ── 紧凑（zoom 10-12）：纯色胶囊，只显示价格 ── */
 .mk-pill {
-  display: inline-block;
-  padding: 4px 9px;
-  border-radius: 12px;
+  display: block;
+  padding: 3px 8px;
+  border-radius: 10px;
   color: #fff;
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  letter-spacing: 0.3px;
+  text-align: center;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
 }
-.mk-arrow {
-  display: inline-block;
+.mk-pill-tip {
+  display: block;
   width: 0;
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top-width: 6px;
+  border-top-width: 5px;
   border-top-style: solid;
-  margin-top: -1px;
+  margin: -1px auto 0;
 }
 
-/* ── 卡片模式（zoom 12-14 / ≥14）：白底卡片 ── */
+/* ── 白底卡片（zoom 12+）── */
 .mk-card {
-  display: inline-flex;
-  align-items: stretch;
+  display: block;
   background: #fff;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-  min-width: 68px;
-  text-align: left;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
 }
-.mk-card-lg {
-  min-width: 96px;
+
+/* 卡片顶行：价格 */
+.mk-card-price-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px 3px;
 }
-.mk-stripe {
-  width: 4px;
+.mk-price-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
-.mk-body {
-  padding: 5px 8px 5px 7px;
-}
-.mk-price {
-  font-size: 14px;
+.mk-price-val {
+  font-size: 15px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1;
+  letter-spacing: -0.4px;
   white-space: nowrap;
-  letter-spacing: -0.3px;
 }
-.mk-meta {
-  font-size: 10px;
-  color: #888;
+.mk-price-unit {
+  font-size: 9px;
+  color: #aaa;
+  font-weight: 400;
+  margin-left: 1px;
+  align-self: flex-end;
+  margin-bottom: 1px;
+}
+
+/* 楼龄行：蓝色分段进度条（独立视觉通道，与价格颜色不同） */
+.mk-card-age-row {
+  padding: 0 9px 5px;
+  border-top: 1px solid #f2f2f2;
   margin-top: 2px;
-  white-space: nowrap;
+  padding-top: 4px;
 }
-.mk-name {
+.mk-age-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.mk-age-label {
+  font-size: 9px;
+  color: #bbb;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.mk-age-year {
+  font-size: 10px;
+  color: #555;
+  font-weight: 600;
+}
+/* 分段条：10格，蓝色 = 已过年份，灰色 = 剩余 */
+.mk-age-bar {
+  display: flex;
+  gap: 2px;
+}
+.mk-age-seg {
+  height: 3px;
+  flex: 1;
+  border-radius: 2px;
+  background: #e8e8e8;
+  transition: background 0.2s;
+}
+.mk-age-seg.filled {
+  background: #4A90D9; /* 固定蓝色，与价格完全区分 */
+}
+.mk-age-seg.filled.old {
+  background: #7B68EE; /* 老旧建筑（>35年）用紫色警示 */
+}
+
+/* 小区名（详细模式） */
+.mk-card-name-row {
+  padding: 5px 9px 0;
   font-size: 11px;
   font-weight: 600;
-  color: #333;
-  margin-bottom: 3px;
+  color: #222;
   white-space: nowrap;
-  max-width: 100px;
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-bottom: 1px solid #f5f5f5;
+  padding-bottom: 3px;
+  margin-bottom: 0;
 }
-/* 卡片底部白色指针 */
-.mk-card-arrow {
+
+/* 卡片底部白色指针尖 */
+.mk-card-tip {
   display: block;
   width: 0;
   height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 7px solid #fff;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid #fff;
   margin: -1px auto 0;
-  filter: drop-shadow(0 2px 1px rgba(0,0,0,0.08));
+  /* drop-shadow 在父层 .mk-wrap 统一处理，这里不再加 filter */
 }
 
 /* ── Info Window ── */
