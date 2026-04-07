@@ -1,6 +1,12 @@
 /**
  * 上海房源地图 - 主应用
  * 高德地图 JS API v2 | 小区房价+楼龄可视化
+ *
+ * LOD 分层策略：
+ *   zoom < 10   → 仅热力图，不画 marker
+ *   zoom 10-12  → 网格采样，每格最多 1 个 marker（全市约 200-300 个）
+ *   zoom 12-14  → 视口内 marker，紧凑样式（只显示价格/年份数字）
+ *   zoom ≥ 14   → 视口内 marker，详细样式（含小区名 label）
  */
 
 const App = (() => {
@@ -8,14 +14,20 @@ const App = (() => {
   // ── State ──────────────────────────────────────────────────────────────────
   let map = null;
   let infoWindow = null;
-  let markers = [];          // AMap.Marker[]
-  let heatmapLayer = null;   // AMap.HeatMap
+  let markers = [];
+  let heatmapLayer = null;
   let heatmapOn = false;
   let allData = [];
   let filteredData = [];
   let colorMode = 'price';
   let selectedDistricts = new Set();
-  let dataLoadedManually = false;  // 拖拽/文件选择后置 true，阻止 AMap 加载时覆盖
+  let dataLoadedManually = false;
+  let lodTimer = null;          // debounce handle
+
+  // ── LOD 阈值 ───────────────────────────────────────────────────────────────
+  const ZOOM_HEATMAP_ONLY = 10; // 低于此值：只显示热力图
+  const ZOOM_SPARSE       = 12; // 低于此值：网格采样，稀疏 marker
+  const ZOOM_DETAIL       = 14; // 高于此值：显示小区名 label
 
   const DATA_PATHS = [
     '../data/processed/communities.json',
@@ -23,7 +35,6 @@ const App = (() => {
   ];
 
   // ── Color ──────────────────────────────────────────────────────────────────
-
   const PRICE_TIERS = [
     { max: 40000,    color: '#27AE60', label: '<4万' },
     { max: 60000,    color: '#82C341', label: '4–6万' },
@@ -32,13 +43,12 @@ const App = (() => {
     { max: 130000,   color: '#E74C3C', label: '10–13万' },
     { max: Infinity, color: '#8E44AD', label: '>13万' },
   ];
-
   const YEAR_TIERS = [
-    { min: 2015,  color: '#00BCD4', label: '2015年后' },
-    { min: 2005,  color: '#4CAF50', label: '2005–2015' },
-    { min: 1995,  color: '#F1C40F', label: '1995–2005' },
-    { min: 1985,  color: '#FF9800', label: '1985–1995' },
-    { min: 0,     color: '#F44336', label: '1985年前' },
+    { min: 2015, color: '#00BCD4', label: '2015年后' },
+    { min: 2005, color: '#4CAF50', label: '2005–2015' },
+    { min: 1995, color: '#F1C40F', label: '1995–2005' },
+    { min: 1985, color: '#FF9800', label: '1985–1995' },
+    { min: 0,    color: '#F44336', label: '1985年前' },
   ];
 
   function getPriceColor(p) {
@@ -46,41 +56,34 @@ const App = (() => {
     for (const t of PRICE_TIERS) if (p < t.max) return t.color;
     return PRICE_TIERS.at(-1).color;
   }
-
   function getYearColor(y) {
     if (y == null) return '#BDBDBD';
     for (const t of YEAR_TIERS) if (y >= t.min) return t.color;
     return YEAR_TIERS.at(-1).color;
   }
-
   function getColor(c) {
     return colorMode === 'price' ? getPriceColor(c.avg_price) : getYearColor(c.build_year);
   }
 
-  // ── AMap Loading ───────────────────────────────────────────────────────────
-
+  // ── AMap 加载 ──────────────────────────────────────────────────────────────
   function initMap() {
     const key = document.getElementById('api-key-input').value.trim();
     if (!key) { alert('请先输入高德地图 API Key'); return; }
-
     showLoading('正在加载高德地图 SDK...');
     const old = document.getElementById('amap-script');
     if (old) old.remove();
-
     const s = document.createElement('script');
     s.id = 'amap-script';
-    // MarkerClusterer_v2 是新版插件名，兼容 v2
-    s.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.MarkerClusterer,AMap.InfoWindow,AMap.HeatMap`;
+    s.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.InfoWindow,AMap.HeatMap`;
     s.onload = onAmapReady;
     s.onerror = () => {
-      hideLoading('❌ 加载失败，请检查 API Key 是否正确');
+      hideLoading('❌ 加载失败，请检查 API Key');
       setStatus('❌ Key 无效或网络错误');
     };
     document.head.appendChild(s);
   }
 
   function onAmapReady() {
-    setStatus('地图初始化...');
     map = new AMap.Map('map', {
       zoom: 11,
       center: [121.4737, 31.2304],
@@ -93,32 +96,30 @@ const App = (() => {
       closeWhenClickMap: true,
     });
 
-    // Esc 关闭 InfoWindow
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && infoWindow) infoWindow.close();
+      if (e.key === 'Escape') infoWindow?.close();
     });
 
-    // 若用户已拖拽了数据，直接渲染，不再 fetch
+    // 地图移动/缩放时重新分层渲染
+    map.on('zoomchange', scheduleLodRender);
+    map.on('moveend',    scheduleLodRender);
+
     if (dataLoadedManually && allData.length > 0) {
       buildDistrictFilter();
       applyFilters();
       hideLoading();
-      setStatus(`已加载 ${allData.length} 个小区（来自本地文件）`);
     } else {
       loadData();
     }
   }
 
-  // ── Data Loading ───────────────────────────────────────────────────────────
-
+  // ── 数据加载 ───────────────────────────────────────────────────────────────
   async function loadData() {
     showLoading('加载小区数据...');
     let json = null;
     for (const path of DATA_PATHS) {
-      try {
-        const r = await fetch(path);
-        if (r.ok) { json = await r.json(); break; }
-      } catch (_) {}
+      try { const r = await fetch(path); if (r.ok) { json = await r.json(); break; } }
+      catch (_) {}
     }
     if (!json) {
       hideLoading('❌ 未找到数据文件');
@@ -131,74 +132,55 @@ const App = (() => {
   function applyDataset(json, manual = true) {
     dataLoadedManually = manual;
     allData = (json.communities || []).filter(c => c.lat && c.lng);
-
     if (map) {
       buildDistrictFilter();
       applyFilters();
       hideLoading();
-      setStatus(`已加载 ${allData.length} 个小区`);
     } else {
-      // 地图还没加载，先存数据，等 onAmapReady 触发
       hideLoading();
       setStatus(`数据已读取 ${allData.length} 个小区，请输入 API Key 加载地图`);
     }
   }
 
-  // ── File Drag & Drop ───────────────────────────────────────────────────────
-
+  // ── 文件上传 ───────────────────────────────────────────────────────────────
   function initFileDrop() {
     const zone = document.getElementById('map-container');
-
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      zone.classList.add('drag-over');
-    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
     zone.addEventListener('drop', e => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
+      e.preventDefault(); zone.classList.remove('drag-over');
       const file = e.dataTransfer.files[0];
       if (!file?.name.endsWith('.json')) { alert('请拖拽 .json 文件'); return; }
       readJsonFile(file);
     });
   }
-
   function openFilePicker() {
     const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = '.json';
+    inp.type = 'file'; inp.accept = '.json';
     inp.onchange = e => { if (e.target.files[0]) readJsonFile(e.target.files[0]); };
     inp.click();
   }
-
   function readJsonFile(file) {
     const reader = new FileReader();
     reader.onload = e => {
-      try {
-        applyDataset(JSON.parse(e.target.result), true);
-      } catch (err) {
-        alert('JSON 解析失败：' + err.message);
-      }
+      try { applyDataset(JSON.parse(e.target.result), true); }
+      catch (err) { alert('JSON 解析失败：' + err.message); }
     };
     reader.readAsText(file);
   }
 
-  // ── District Filter ────────────────────────────────────────────────────────
-
+  // ── 行政区筛选 ────────────────────────────────────────────────────────────
   function buildDistrictFilter() {
     const districts = [...new Set(allData.map(c => c.district).filter(Boolean))].sort();
     selectedDistricts = new Set(districts);
-
     const el = document.getElementById('district-list');
     el.innerHTML = '';
     districts.forEach(d => {
       const chip = document.createElement('label');
       chip.className = 'district-chip checked';
       chip.dataset.district = d;
-
       const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = true;
+      cb.type = 'checkbox'; cb.checked = true;
       cb.addEventListener('change', () => {
         cb.checked ? selectedDistricts.add(d) : selectedDistricts.delete(d);
         chip.classList.toggle('checked', cb.checked);
@@ -210,11 +192,9 @@ const App = (() => {
     });
   }
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-
+  // ── 筛选器 ────────────────────────────────────────────────────────────────
   function applyFilters() {
     if (!map) return;
-
     const search   = document.getElementById('search-input').value.trim().toLowerCase();
     const priceMin = +document.getElementById('price-min').value;
     const priceMax = +document.getElementById('price-max').value;
@@ -229,13 +209,11 @@ const App = (() => {
       return true;
     });
 
-    renderMarkers();
-    if (heatmapOn) renderHeatmap();
+    renderByLOD();
     updateStats();
     updateLegend();
     updateResultsList();
     document.getElementById('no-data-msg').classList.toggle('show', filteredData.length === 0);
-    setStatus(`显示 ${filteredData.length} / ${allData.length} 个小区`);
   }
 
   function onPriceRangeChange() {
@@ -245,21 +223,18 @@ const App = (() => {
     document.getElementById('price-max-val').textContent = max >= 200000 ? '20万+' : fmtPrice(max);
     applyFilters();
   }
-
   function onYearRangeChange() {
     document.getElementById('year-min-val').textContent = document.getElementById('year-min').value;
     document.getElementById('year-max-val').textContent = document.getElementById('year-max').value;
     applyFilters();
   }
-
   function resetFilters() {
     document.getElementById('search-input').value = '';
     document.getElementById('price-min').value = 0;
     document.getElementById('price-max').value = 200000;
     document.getElementById('year-min').value = 1970;
     document.getElementById('year-max').value = 2024;
-    onPriceRangeChange();
-    onYearRangeChange();
+    onPriceRangeChange(); onYearRangeChange();
     document.querySelectorAll('.district-chip').forEach(chip => {
       chip.classList.add('checked');
       chip.querySelector('input').checked = true;
@@ -268,28 +243,107 @@ const App = (() => {
     applyFilters();
   }
 
-  // ── Markers ────────────────────────────────────────────────────────────────
+  // ── LOD 分层渲染核心 ───────────────────────────────────────────────────────
 
-  function renderMarkers() {
-    // 清除旧 marker（不用 MarkerClusterer，稳定性优先）
+  function scheduleLodRender() {
+    clearTimeout(lodTimer);
+    lodTimer = setTimeout(renderByLOD, 120);
+  }
+
+  function renderByLOD() {
+    if (!map) return;
+    const zoom = map.getZoom();
+
+    if (zoom < ZOOM_HEATMAP_ONLY) {
+      // ── 层级 0：只显示热力图 ──────────────────────────────────────────────
+      clearMarkers();
+      renderHeatmapAuto();
+      setStatus(`🗺 缩小视图中，显示热力图（共 ${filteredData.length} 个小区）`);
+      return;
+    }
+
+    // 热力图（用户手动开启时随时显示）
+    if (heatmapOn) renderHeatmap();
+
+    const bounds = map.getBounds();
+    const viewport = filteredData.filter(c =>
+      bounds.contains(new AMap.LngLat(c.lng, c.lat))
+    );
+
+    let toRender;
+    if (zoom < ZOOM_SPARSE) {
+      // ── 层级 1：网格采样 ─────────────────────────────────────────────────
+      toRender = gridSample(viewport, bounds, 300);
+      setStatus(`🔭 显示 ${toRender.length} 个（视口内 ${viewport.length}，共 ${filteredData.length}）· 放大看更多`);
+    } else if (zoom < ZOOM_DETAIL) {
+      // ── 层级 2：视口内全部，紧凑样式 ────────────────────────────────────
+      toRender = viewport;
+      setStatus(`显示视口内 ${toRender.length} 个小区（共 ${filteredData.length}）`);
+    } else {
+      // ── 层级 3：视口内全部，详细样式（含小区名）────────────────────────
+      toRender = viewport;
+      setStatus(`🔍 显示 ${toRender.length} 个小区（含小区名）`);
+    }
+
+    buildMarkers(toRender, zoom);
+  }
+
+  /** 按经纬度网格采样，保证空间均匀分布 */
+  function gridSample(data, bounds, maxCount) {
+    if (data.length <= maxCount) return data;
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    const cols = Math.ceil(Math.sqrt(maxCount * 1.5));
+    const rows = cols;
+    const latStep = (ne.getLat() - sw.getLat()) / rows || 0.01;
+    const lngStep = (ne.getLng() - sw.getLng()) / cols || 0.01;
+    const grid = new Map();
+    for (const c of data) {
+      const row = Math.floor((c.lat - sw.getLat()) / latStep);
+      const col = Math.floor((c.lng - sw.getLng()) / lngStep);
+      const key = `${row},${col}`;
+      // 同格内保留均价更高的（更有参考价值）
+      if (!grid.has(key) || (c.avg_price ?? 0) > (grid.get(key).avg_price ?? 0)) {
+        grid.set(key, c);
+      }
+    }
+    return [...grid.values()];
+  }
+
+  function clearMarkers() {
     if (markers.length) { map.remove(markers); markers = []; }
-    if (infoWindow) infoWindow.close();
+    infoWindow?.close();
+  }
 
-    filteredData.forEach(c => {
+  function buildMarkers(data, zoom) {
+    clearMarkers();
+    const showName = zoom >= ZOOM_DETAIL;
+
+    data.forEach(c => {
       const color = getColor(c);
-      const label = colorMode === 'price'
+      const mainLabel = colorMode === 'price'
         ? (c.avg_price != null ? `${(c.avg_price / 10000).toFixed(0)}万` : '?')
         : (c.build_year != null ? String(c.build_year) : '?');
 
       const el = document.createElement('div');
-      el.className = 'community-marker';
-      el.style.background = color;
-      el.textContent = label;
 
+      if (showName) {
+        // 详细样式：圆圈 + 下方小区名
+        el.className = 'community-marker-wrap';
+        el.innerHTML = `
+          <div class="community-marker" style="background:${color}">${escHtml(mainLabel)}</div>
+          <div class="marker-label">${escHtml(c.name)}</div>`;
+      } else {
+        el.className = 'community-marker';
+        el.style.background = color;
+        el.textContent = mainLabel;
+      }
+
+      const offsetY = showName ? -20 : -18;
       const m = new AMap.Marker({
         position: [c.lng, c.lat],
         content: el,
-        offset: new AMap.Pixel(-18, -18),
+        offset: new AMap.Pixel(-18, offsetY),
         title: c.name,
         extData: c,
         zIndex: 10,
@@ -301,8 +355,7 @@ const App = (() => {
     map.add(markers);
   }
 
-  // ── Heatmap ────────────────────────────────────────────────────────────────
-
+  // ── 热力图 ────────────────────────────────────────────────────────────────
   const HEATMAP_GRADIENTS = {
     price: { 0.2: '#2ecc71', 0.5: '#f1c40f', 0.75: '#e67e22', 1: '#c0392b' },
     year:  { 0.2: '#c0392b', 0.5: '#e67e22', 0.75: '#2ecc71', 1: '#00bcd4' },
@@ -310,51 +363,43 @@ const App = (() => {
 
   function renderHeatmap() {
     if (!map || typeof AMap.HeatMap === 'undefined') return;
-
     const points = filteredData
       .filter(c => colorMode === 'price' ? c.avg_price != null : c.build_year != null)
       .map(c => ({
-        lng: c.lng,
-        lat: c.lat,
-        count: colorMode === 'price'
-          ? c.avg_price / 10000          // 万元/m²，max ~20
-          : (2024 - c.build_year),       // 房龄，max ~60
+        lng: c.lng, lat: c.lat,
+        count: colorMode === 'price' ? c.avg_price / 10000 : (2024 - c.build_year),
       }));
-
     const maxVal = points.reduce((m, p) => Math.max(m, p.count), 1);
-
     if (!heatmapLayer) {
       heatmapLayer = new AMap.HeatMap(map, {
-        radius: 30,
-        opacity: [0, 0.75],
-        gradient: HEATMAP_GRADIENTS[colorMode],
-        blur: 0.85,
+        radius: 30, opacity: [0, 0.75],
+        gradient: HEATMAP_GRADIENTS[colorMode], blur: 0.85,
       });
     } else {
       heatmapLayer.setOptions({ gradient: HEATMAP_GRADIENTS[colorMode] });
     }
-
     heatmapLayer.setDataSet({ data: points, max: maxVal });
     heatmapLayer.show();
+  }
+
+  // 低缩放自动热力图（不改变用户的 heatmapOn 开关状态）
+  let autoHeatmap = false;
+  function renderHeatmapAuto() {
+    autoHeatmap = true;
+    renderHeatmap();
   }
 
   function toggleHeatmap() {
     if (!map) return;
     heatmapOn = !heatmapOn;
-
     const btn = document.getElementById('btn-heatmap');
     btn.classList.toggle('active', heatmapOn);
     btn.textContent = heatmapOn ? '🔥 热力图 ON' : '🔥 热力图';
-
-    if (heatmapOn) {
-      renderHeatmap();
-    } else {
-      heatmapLayer?.hide();
-    }
+    if (heatmapOn) renderHeatmap();
+    else { heatmapLayer?.hide(); autoHeatmap = false; }
   }
 
-  // ── Info Window ────────────────────────────────────────────────────────────
-
+  // ── InfoWindow ────────────────────────────────────────────────────────────
   function openInfoWindow(marker, c) {
     const age = c.build_year ? 2024 - c.build_year : null;
     infoWindow.setContent(`
@@ -380,42 +425,32 @@ const App = (() => {
     infoWindow.open(map, marker.getPosition());
   }
 
-  // ── Color Mode ─────────────────────────────────────────────────────────────
-
+  // ── 颜色模式 ──────────────────────────────────────────────────────────────
   function setMode(mode) {
     colorMode = mode;
     document.getElementById('mode-price').classList.toggle('active', mode === 'price');
     document.getElementById('mode-year').classList.toggle('active', mode === 'year');
     document.getElementById('list-sort-label').textContent =
       mode === 'price' ? '均价从高到低' : '建成年份从新到旧';
-    renderMarkers();
-    if (heatmapOn) renderHeatmap();
+    renderByLOD();
     updateLegend();
     updateResultsList();
   }
 
-  // ── Result List ────────────────────────────────────────────────────────────
-
+  // ── 结果列表 ──────────────────────────────────────────────────────────────
   const LIST_MAX = 30;
-
   function updateResultsList() {
     const sorted = [...filteredData].sort((a, b) =>
       colorMode === 'price'
         ? (b.avg_price ?? 0) - (a.avg_price ?? 0)
         : (b.build_year ?? 0) - (a.build_year ?? 0)
     );
-
     document.getElementById('list-count').textContent =
       `${filteredData.length} 个${filteredData.length > LIST_MAX ? `，显示前 ${LIST_MAX}` : ''}`;
-
     const list = document.getElementById('results-list');
-    if (!filteredData.length) {
-      list.innerHTML = '<div class="list-empty">无匹配小区</div>';
-      return;
-    }
-
+    if (!filteredData.length) { list.innerHTML = '<div class="list-empty">无匹配小区</div>'; return; }
     list.innerHTML = sorted.slice(0, LIST_MAX).map(c => `
-      <div class="result-item" data-id="${c.id}" onclick="App.flyTo(${c.lng},${c.lat},'${c.id}')">
+      <div class="result-item" onclick="App.flyTo(${c.lng},${c.lat},'${c.id}')">
         <div class="result-dot" style="background:${getColor(c)}"></div>
         <div class="result-info">
           <div class="result-name">${escHtml(c.name)}</div>
@@ -431,114 +466,80 @@ const App = (() => {
   function flyTo(lng, lat, id) {
     if (!map) return;
     map.setZoomAndCenter(15, [lng, lat], false, 400);
-    // 延迟等动画结束后开 InfoWindow
     setTimeout(() => {
       const target = allData.find(c => c.id === id);
       if (!target) return;
       const m = markers.find(mk => mk.getExtData()?.id === id);
-      if (m) {
-        openInfoWindow(m, target);
-      } else {
-        // marker 可能因筛选不可见，直接在坐标上开窗
-        if (!infoWindow) return;
-        const age = target.build_year ? 2024 - target.build_year : null;
-        infoWindow.setContent(`<div class="info-window">
-          <div class="info-title">${escHtml(target.name)}</div>
-          <div class="info-row"><span class="info-key">💰 均价</span><span class="info-val price">${target.avg_price != null ? fmtPrice(target.avg_price)+' 元/㎡' : '暂无'}</span></div>
-          <div class="info-row"><span class="info-key">🏗 建成</span><span class="info-val year">${target.build_year ?? '—'}${age ? `（${age}年）` : ''}</span></div>
-        </div>`);
-        infoWindow.open(map, new AMap.LngLat(lng, lat));
-      }
+      if (m) { openInfoWindow(m, target); return; }
+      // marker 不在视口，直接弹窗
+      const age = target.build_year ? 2024 - target.build_year : null;
+      infoWindow.setContent(`<div class="info-window">
+        <div class="info-title">${escHtml(target.name)}</div>
+        <div class="info-row"><span class="info-key">💰 均价</span><span class="info-val price">${target.avg_price != null ? fmtPrice(target.avg_price)+' 元/㎡' : '暂无'}</span></div>
+        <div class="info-row"><span class="info-key">🏗 建成</span><span class="info-val year">${target.build_year ?? '—'}${age ? `（${age}年）` : ''}</span></div>
+      </div>`);
+      infoWindow.open(map, new AMap.LngLat(lng, lat));
     }, 450);
   }
 
-  // ── Export CSV ────────────────────────────────────────────────────────────
-
+  // ── 导出 CSV ──────────────────────────────────────────────────────────────
   function exportCsv() {
     if (!filteredData.length) { alert('当前无数据可导出'); return; }
-    const header = ['小区名', '行政区', '街道', '均价(元/m²)', '建成年份', '房龄', '楼栋数', '总套数', '纬度', '经度', '来源链接'];
+    const header = ['小区名','行政区','街道','均价(元/m²)','建成年份','房龄','楼栋数','总套数','纬度','经度','来源链接'];
     const rows = filteredData.map(c => [
-      c.name,
-      c.district ?? '',
-      c.subdistrict ?? '',
-      c.avg_price ?? '',
-      c.build_year ?? '',
-      c.build_year ? 2024 - c.build_year : '',
-      c.total_buildings ?? '',
-      c.total_units ?? '',
-      c.lat,
-      c.lng,
-      c.source_url ?? '',
+      c.name, c.district??'', c.subdistrict??'',
+      c.avg_price??'', c.build_year??'',
+      c.build_year ? 2024-c.build_year : '',
+      c.total_buildings??'', c.total_units??'',
+      c.lat, c.lng, c.source_url??'',
     ]);
-    const csv = [header, ...rows]
-      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const csv = [header,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = URL.createObjectURL(new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'}));
     a.download = `上海房源_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
   }
 
-  // ── Legend ─────────────────────────────────────────────────────────────────
-
+  // ── 图例 ──────────────────────────────────────────────────────────────────
   function updateLegend() {
     const tiers = colorMode === 'price' ? PRICE_TIERS : [...YEAR_TIERS].reverse();
-    document.getElementById('legend-content').innerHTML = `
-      <div class="legend-steps">
-        ${tiers.map(t => `
-          <div class="legend-step">
-            <div class="legend-dot" style="background:${t.color}"></div>
-            <span>${t.label}</span>
-          </div>`).join('')}
-        <div class="legend-step">
-          <div class="legend-dot" style="background:#BDBDBD"></div>
-          <span>无数据</span>
-        </div>
-      </div>`;
+    document.getElementById('legend-content').innerHTML = `<div class="legend-steps">${
+      tiers.map(t=>`<div class="legend-step"><div class="legend-dot" style="background:${t.color}"></div><span>${t.label}</span></div>`).join('')
+    }<div class="legend-step"><div class="legend-dot" style="background:#BDBDBD"></div><span>无数据</span></div></div>`;
   }
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
-
+  // ── 统计 ──────────────────────────────────────────────────────────────────
   function updateStats() {
     document.getElementById('stat-total').textContent = filteredData.length;
-    const wp = filteredData.filter(c => c.avg_price != null);
+    const wp = filteredData.filter(c=>c.avg_price!=null);
     document.getElementById('stat-avg-price').textContent =
-      wp.length ? (wp.reduce((s, c) => s + c.avg_price, 0) / wp.length / 10000).toFixed(1) + '万' : '—';
-    const wy = filteredData.filter(c => c.build_year != null);
+      wp.length ? (wp.reduce((s,c)=>s+c.avg_price,0)/wp.length/10000).toFixed(1)+'万' : '—';
+    const wy = filteredData.filter(c=>c.build_year!=null);
     document.getElementById('stat-avg-year').textContent =
-      wy.length ? Math.round(wy.reduce((s, c) => s + c.build_year, 0) / wy.length) + '年' : '—';
+      wy.length ? Math.round(wy.reduce((s,c)=>s+c.build_year,0)/wy.length)+'年' : '—';
   }
 
-  // ── UI Helpers ─────────────────────────────────────────────────────────────
-
+  // ── UI 工具 ───────────────────────────────────────────────────────────────
   function showLoading(msg) {
     const el = document.getElementById('map-loading');
     el.innerHTML = `<div class="spinner"></div><div>${msg}</div>`;
     el.classList.remove('hidden');
   }
-
   function hideLoading(errMsg) {
     const el = document.getElementById('map-loading');
     if (errMsg) el.innerHTML = `<div style="color:#d32f2f;font-size:14px">${errMsg}</div>`;
     else el.classList.add('hidden');
   }
-
-  function setStatus(msg) {
-    document.getElementById('status-bar').textContent = msg;
-  }
-
+  function setStatus(msg) { document.getElementById('status-bar').textContent = msg; }
   function fmtPrice(n) {
-    if (n == null) return '—';
-    return n >= 10000 ? (n / 10000).toFixed(1) + '万' : n.toLocaleString();
+    if (n==null) return '—';
+    return n>=10000 ? (n/10000).toFixed(1)+'万' : n.toLocaleString();
   }
-
   function escHtml(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Init ───────────────────────────────────────────────────────────────────
-
+  // ── 初始化 ────────────────────────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', () => {
     updateLegend();
     initFileDrop();
