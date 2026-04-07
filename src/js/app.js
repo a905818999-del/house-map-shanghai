@@ -255,9 +255,8 @@ const App = (() => {
 
   // ── LOD 每层 marker 上限 ───────────────────────────────────────────────────
   const LOD_CAPS = {
-    sparse: 300,  // zoom 10-12：网格采样上限
-    normal: 400,  // zoom 12-14：视口上限，超出再采样
-    detail: 200,  // zoom ≥ 14：视口极小，上限宽松
+    sparse: 150,  // zoom 10-12
+    normal: 200,  // zoom 12-14（超出继续网格采样）
   };
 
   function renderByLOD() {
@@ -345,24 +344,17 @@ const App = (() => {
       el.className = 'badge-wrap';
 
       if (compact) {
-        // 层级1：只显示价格/年份数字，小圆角标签
-        el.innerHTML = `
-          <div class="badge-box compact" style="background:${color}">
-            ${escHtml(mainVal)}
-          </div>
-          <div class="badge-tip" style="border-top-color:${color}"></div>`;
+        el.innerHTML =
+          `<div class="badge-box compact" style="background:${color}">${escHtml(mainVal)}</div>` +
+          `<div class="badge-tip" style="border-top-color:${color}"></div>`;
       } else {
-        // 层级2/3：显示小区名 + 主数值 + 副数值
-        el.innerHTML = `
-          <div class="badge-box" style="background:${color}">
-            <span class="badge-name">${escHtml(c.name)}</span>
-            <span class="badge-divider">|</span>
-            <span class="badge-main">${escHtml(mainVal)}</span>
-            ${zoom >= ZOOM_DETAIL
-              ? `<span class="badge-sub">${escHtml(subVal)}</span>`
-              : ''}
-          </div>
-          <div class="badge-tip" style="border-top-color:${color}"></div>`;
+        const sub = zoom >= ZOOM_DETAIL ? `<span class="badge-sub"> ${escHtml(subVal)}</span>` : '';
+        el.innerHTML =
+          `<div class="badge-box" style="background:${color}">` +
+            `<span class="badge-name">${escHtml(c.name)}</span>` +
+            `<span class="badge-main"> ${escHtml(mainVal)}</span>${sub}` +
+          `</div>` +
+          `<div class="badge-tip" style="border-top-color:${color}"></div>`;
       }
 
       const m = new AMap.Marker({
