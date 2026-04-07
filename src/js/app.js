@@ -88,7 +88,11 @@ const App = (() => {
       zoom: 11,
       center: [121.4737, 31.2304],
       mapStyle: 'amap://styles/light',
+      resizeEnable: true,
     });
+
+    // 强制 resize，解决 tile 不显示问题（容器尺寸在 SDK 加载前可能未稳定）
+    setTimeout(() => map.resize(), 300);
 
     infoWindow = new AMap.InfoWindow({
       anchor: 'bottom-center',
@@ -100,7 +104,6 @@ const App = (() => {
       if (e.key === 'Escape') infoWindow?.close();
     });
 
-    // 地图移动/缩放时重新分层渲染
     map.on('zoomchange', scheduleLodRender);
     map.on('moveend',    scheduleLodRender);
 
@@ -250,19 +253,24 @@ const App = (() => {
     lodTimer = setTimeout(renderByLOD, 120);
   }
 
+  // ── LOD 每层 marker 上限 ───────────────────────────────────────────────────
+  const LOD_CAPS = {
+    sparse: 300,  // zoom 10-12：网格采样上限
+    normal: 400,  // zoom 12-14：视口上限，超出再采样
+    detail: 200,  // zoom ≥ 14：视口极小，上限宽松
+  };
+
   function renderByLOD() {
     if (!map) return;
     const zoom = map.getZoom();
 
     if (zoom < ZOOM_HEATMAP_ONLY) {
-      // ── 层级 0：只显示热力图 ──────────────────────────────────────────────
       clearMarkers();
       renderHeatmapAuto();
       setStatus(`🗺 缩小视图中，显示热力图（共 ${filteredData.length} 个小区）`);
       return;
     }
 
-    // 热力图（用户手动开启时随时显示）
     if (heatmapOn) renderHeatmap();
 
     const bounds = map.getBounds();
@@ -272,15 +280,18 @@ const App = (() => {
 
     let toRender;
     if (zoom < ZOOM_SPARSE) {
-      // ── 层级 1：网格采样 ─────────────────────────────────────────────────
-      toRender = gridSample(viewport, bounds, 300);
-      setStatus(`🔭 显示 ${toRender.length} 个（视口内 ${viewport.length}，共 ${filteredData.length}）· 放大看更多`);
+      // 层级 1：网格采样，最多 300 个
+      toRender = gridSample(viewport, bounds, LOD_CAPS.sparse);
+      setStatus(`🔭 显示 ${toRender.length} 个（视口 ${viewport.length}，共 ${filteredData.length}）· 放大看更多`);
     } else if (zoom < ZOOM_DETAIL) {
-      // ── 层级 2：视口内全部，紧凑样式 ────────────────────────────────────
-      toRender = viewport;
-      setStatus(`显示视口内 ${toRender.length} 个小区（共 ${filteredData.length}）`);
+      // 层级 2：视口内，超出 400 时网格采样
+      toRender = viewport.length > LOD_CAPS.normal
+        ? gridSample(viewport, bounds, LOD_CAPS.normal)
+        : viewport;
+      const sampled = toRender.length < viewport.length ? `（已采样）` : '';
+      setStatus(`显示 ${toRender.length} 个小区${sampled}（共 ${filteredData.length}）`);
     } else {
-      // ── 层级 3：视口内全部，详细样式（含小区名）────────────────────────
+      // 层级 3：zoom≥14，视口极小，直接全量
       toRender = viewport;
       setStatus(`🔍 显示 ${toRender.length} 个小区（含小区名）`);
     }
@@ -563,7 +574,8 @@ const App = (() => {
     const savedKey = window.LOCAL_CONFIG?.amapKey;
     if (savedKey) {
       document.getElementById('api-key-input').value = savedKey;
-      initMap();
+      // 延迟 200ms 确保页面布局完全稳定后再初始化地图
+      setTimeout(() => initMap(), 200);
     }
   });
 
