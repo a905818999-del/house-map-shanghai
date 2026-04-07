@@ -87,7 +87,7 @@ const App = (() => {
     map = new AMap.Map('map', {
       zoom: 11,
       center: [121.4737, 31.2304],
-      mapStyle: 'amap://styles/light',
+      mapStyle: (typeof LOCAL_CONFIG !== 'undefined' && LOCAL_CONFIG.mapStyle) ? LOCAL_CONFIG.mapStyle : 'amap://styles/light',
       resizeEnable: true,
     });
 
