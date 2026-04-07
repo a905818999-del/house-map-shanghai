@@ -70,6 +70,14 @@ const App = (() => {
     const key = document.getElementById('api-key-input').value.trim();
     if (!key) { alert('请先输入高德地图 API Key'); return; }
     showLoading('正在加载高德地图 SDK...');
+
+    // AMap JS API v2.0 安全密钥（2021-12-02起强制要求）
+    // 没有安全密钥会导致地图瓦片白色不显示
+    const secCode = window.LOCAL_CONFIG?.securityJsCode;
+    if (secCode) {
+      window._AMapSecurityConfig = { securityJsCode: secCode };
+    }
+
     const old = document.getElementById('amap-script');
     if (old) old.remove();
     const s = document.createElement('script');
