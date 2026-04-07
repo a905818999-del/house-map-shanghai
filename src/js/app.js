@@ -317,33 +317,47 @@ const App = (() => {
 
   function buildMarkers(data, zoom) {
     clearMarkers();
-    const showName = zoom >= ZOOM_DETAIL;
+    const showName = zoom >= ZOOM_SPARSE;   // zoom≥12 显示小区名
+    const compact  = zoom < ZOOM_SPARSE;    // zoom<12 仅显示数值
 
     data.forEach(c => {
       const color = getColor(c);
-      const mainLabel = colorMode === 'price'
-        ? (c.avg_price != null ? `${(c.avg_price / 10000).toFixed(0)}万` : '?')
-        : (c.build_year != null ? String(c.build_year) : '?');
+
+      const priceVal = c.avg_price != null
+        ? `${(c.avg_price / 10000).toFixed(1)}万`
+        : '暂无';
+      const yearVal  = c.build_year != null ? `${c.build_year}年` : '暂无';
+      const mainVal  = colorMode === 'price' ? priceVal : yearVal;
+      const subVal   = colorMode === 'price' ? yearVal  : priceVal;
 
       const el = document.createElement('div');
+      el.className = 'badge-wrap';
 
-      if (showName) {
-        // 详细样式：圆圈 + 下方小区名
-        el.className = 'community-marker-wrap';
+      if (compact) {
+        // 层级1：只显示价格/年份数字，小圆角标签
         el.innerHTML = `
-          <div class="community-marker" style="background:${color}">${escHtml(mainLabel)}</div>
-          <div class="marker-label">${escHtml(c.name)}</div>`;
+          <div class="badge-box compact" style="background:${color}">
+            ${escHtml(mainVal)}
+          </div>
+          <div class="badge-tip" style="border-top-color:${color}"></div>`;
       } else {
-        el.className = 'community-marker';
-        el.style.background = color;
-        el.textContent = mainLabel;
+        // 层级2/3：显示小区名 + 主数值 + 副数值
+        el.innerHTML = `
+          <div class="badge-box" style="background:${color}">
+            <span class="badge-name">${escHtml(c.name)}</span>
+            <span class="badge-divider">|</span>
+            <span class="badge-main">${escHtml(mainVal)}</span>
+            ${zoom >= ZOOM_DETAIL
+              ? `<span class="badge-sub">${escHtml(subVal)}</span>`
+              : ''}
+          </div>
+          <div class="badge-tip" style="border-top-color:${color}"></div>`;
       }
 
-      const offsetY = showName ? -20 : -18;
       const m = new AMap.Marker({
         position: [c.lng, c.lat],
         content: el,
-        offset: new AMap.Pixel(-18, offsetY),
+        anchor: 'bottom-center',
         title: c.name,
         extData: c,
         zIndex: 10,
