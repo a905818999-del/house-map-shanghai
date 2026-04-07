@@ -558,6 +558,13 @@ const App = (() => {
     updateLegend();
     initFileDrop();
     document.getElementById('list-sort-label').textContent = '均价从高到低';
+
+    // 自动填入本地配置的 Key 并加载地图
+    const savedKey = window.LOCAL_CONFIG?.amapKey;
+    if (savedKey) {
+      document.getElementById('api-key-input').value = savedKey;
+      initMap();
+    }
   });
 
   return {

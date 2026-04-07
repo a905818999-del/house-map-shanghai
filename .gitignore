@@ -2,6 +2,9 @@
 data/raw/*.csv
 data/raw/*.xlsx
 
+# 本地配置（含 API Key，不入库）
+src/js/config.js
+
 # 系统文件
 .DS_Store
 Thumbs.db
