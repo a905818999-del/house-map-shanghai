@@ -126,8 +126,7 @@ const App = (() => {
     if (!input.value.trim() && window.LOCAL_CONFIG?.amapKey) {
       input.value = window.LOCAL_CONFIG.amapKey;
     }
-    const key = input.value.trim();
-    if (!key) { alert('请先输入高德地图 API Key'); return; }
+    const key = input.value.trim() || '1cf0650cf8cc24f862e1d3a1d023b93c';
     showLoading('正在加载高德地图 SDK...');
 
     // securityJsCode 已在 <head> 里预设，无需重复设置
@@ -880,15 +879,15 @@ const App = (() => {
     initFileDrop();
     switchTab('filter');
 
-    const savedKey = window.LOCAL_CONFIG?.amapKey;
-    if (savedKey) {
-      const input = document.getElementById('api-key-input');
-      input.value = savedKey;
-      input.style.background = '#f0faf4';
-      input.style.borderColor = '#27ae60';
-      // 等 DOM 完全稳定后再触发加载
-      setTimeout(() => initMap(), 600);
-    }
+    // 直接用 config.js 里的 Key 自动加载，无需用户操作
+    const key = (window.LOCAL_CONFIG && LOCAL_CONFIG.amapKey)
+      ? LOCAL_CONFIG.amapKey
+      : '1cf0650cf8cc24f862e1d3a1d023b93c';
+    const input = document.getElementById('api-key-input');
+    input.value = key;
+    input.style.background = '#f0faf4';
+    input.style.borderColor = '#27ae60';
+    setTimeout(() => initMap(), 300);
   });
 
   return {
