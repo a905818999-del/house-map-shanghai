@@ -25,6 +25,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
+import math
 
 # ── 路径配置 ───────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
@@ -40,6 +41,44 @@ PRICE_MIN, PRICE_MAX = 5000, 500000
 
 # 合理的建成年份范围
 YEAR_MIN, YEAR_MAX = 1950, 2025
+
+
+# ── WGS-84 → GCJ-02 坐标转换 ─────────────────────────────────────────────────
+# 链家/Spider 数据坐标可能是 WGS-84，高德底图是 GCJ-02，不转会偏移几百米
+
+_A = 6378245.0
+_EE = 0.00669342162296594
+
+def _out_of_china(lat, lng):
+    return not (73.66 < lng < 135.05 and 3.86 < lat < 53.55)
+
+def _transform_lat(x, y):
+    ret = -100.0 + 2.0*x + 3.0*y + 0.2*y*y + 0.1*x*y + 0.2*math.sqrt(abs(x))
+    ret += (20.0*math.sin(6.0*x*math.pi) + 20.0*math.sin(2.0*x*math.pi)) * 2.0 / 3.0
+    ret += (20.0*math.sin(y*math.pi) + 40.0*math.sin(y/3.0*math.pi)) * 2.0 / 3.0
+    ret += (160.0*math.sin(y/12.0*math.pi) + 320.0*math.sin(y*math.pi/30.0)) * 2.0 / 3.0
+    return ret
+
+def _transform_lng(x, y):
+    ret = 300.0 + x + 2.0*y + 0.1*x*x + 0.1*x*y + 0.1*math.sqrt(abs(x))
+    ret += (20.0*math.sin(6.0*x*math.pi) + 20.0*math.sin(2.0*x*math.pi)) * 2.0 / 3.0
+    ret += (20.0*math.sin(x*math.pi) + 40.0*math.sin(x/3.0*math.pi)) * 2.0 / 3.0
+    ret += (150.0*math.sin(x/12.0*math.pi) + 300.0*math.sin(x/30.0*math.pi)) * 2.0 / 3.0
+    return ret
+
+def wgs84_to_gcj02(lat, lng):
+    """WGS-84 → GCJ-02（火星坐标）"""
+    if _out_of_china(lat, lng):
+        return lat, lng
+    dlat = _transform_lat(lng - 105.0, lat - 35.0)
+    dlng = _transform_lng(lng - 105.0, lat - 35.0)
+    radlat = lat / 180.0 * math.pi
+    magic = math.sin(radlat)
+    magic = 1 - _EE * magic * magic
+    sqrtmagic = math.sqrt(magic)
+    dlat = (dlat * 180.0) / ((_A * (1 - _EE)) / (magic * sqrtmagic) * math.pi)
+    dlng = (dlng * 180.0) / (_A / sqrtmagic * math.cos(radlat) * math.pi)
+    return round(lat + dlat, 6), round(lng + dlng, 6)
 
 
 # ── 工具函数 ───────────────────────────────────────────────────────────────────
@@ -401,6 +440,17 @@ def main():
     # district 标准化
     for c in deduped:
         c["district"] = _normalize_district(c.get("district")) or c.get("district")
+
+    # WGS-84 → GCJ-02 坐标转换
+    converted = 0
+    for c in deduped:
+        old_lat, old_lng = c["lat"], c["lng"]
+        new_lat, new_lng = wgs84_to_gcj02(old_lat, old_lng)
+        if abs(new_lat - old_lat) > 0.0001 or abs(new_lng - old_lng) > 0.0001:
+            converted += 1
+        c["lat"] = new_lat
+        c["lng"] = new_lng
+    log(f"坐标转换 WGS-84→GCJ-02: {converted} 个有显著偏移")
 
     # 统计
     with_price = sum(1 for c in deduped if c.get("avg_price"))

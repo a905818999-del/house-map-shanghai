@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>上海房源地图 · 房龄 + 房价可视化</title>
+  <title>上海房源地图 · 洼地分析</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
 
     <div class="sidebar-header">
       <h1>🏠 上海房源地图</h1>
-      <div class="subtitle">房龄 + 均价可视化 · 以小区为单位</div>
+      <div class="subtitle">四象限洼地分析 · 环线 + 通勤</div>
     </div>
 
     <!-- API Key -->
@@ -25,73 +25,72 @@
       <div class="api-key-row">
         <input type="text" id="api-key-input" placeholder="粘贴 Key，回车加载…"
                autocomplete="off" onkeydown="if(event.key==='Enter')App.initMap()">
-        <button class="btn-primary" onclick="App.initMap()">加载地图</button>
+        <button class="btn-primary" onclick="App.initMap()">加载</button>
       </div>
     </div>
 
     <!-- File upload -->
     <div class="file-upload-section">
-      <button class="btn-file" onclick="App.openFilePicker()">
-        📂 本地打开 communities.json
-      </button>
-      <div class="file-hint">或拖拽 JSON 到地图区域</div>
+      <button class="btn-file" onclick="App.openFilePicker()">📂 本地打开 communities.json</button>
     </div>
 
-    <!-- Scrollable Body -->
-    <div class="sidebar-body">
-
-      <!-- Stats -->
-      <div class="section">
-        <div class="section-title">数据概览</div>
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-value" id="stat-total">—</div>
-            <div class="stat-label">显示小区</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-avg-price">—</div>
-            <div class="stat-label">均价均值</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="stat-avg-year">—</div>
-            <div class="stat-label">平均建成年</div>
-          </div>
-        </div>
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-label">小区数</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-avg-price">—</div>
+        <div class="stat-label">均价均值</div>
+      </div>
+      <div class="stat-card" style="background:#e8f8ee">
+        <div class="stat-value" id="stat-valley" style="color:#27AE60">—</div>
+        <div class="stat-label">🟢 洼地数</div>
+      </div>
+    </div>
 
-      <hr class="divider">
+    <!-- Tab Nav -->
+    <div class="tab-nav">
+      <button class="tab-btn active" id="tab-filter" onclick="App.switchTab('filter')">筛选</button>
+      <button class="tab-btn" id="tab-valley" onclick="App.switchTab('valley')">🟢 洼地榜</button>
+      <button class="tab-btn" id="tab-commute" onclick="App.switchTab('commute')">🚗 通勤</button>
+    </div>
 
-      <!-- Color Mode -->
+    <!-- ── PANEL: 筛选 ── -->
+    <div class="tab-panel active" id="panel-filter">
+
+      <!-- 颜色模式 -->
       <div class="section">
-        <div class="section-title">颜色模式</div>
+        <div class="section-title">显示模式</div>
         <div class="mode-toggle">
-          <button class="mode-btn active" id="mode-price" onclick="App.setMode('price')">
-            💰 按均价
-          </button>
-          <button class="mode-btn" id="mode-year" onclick="App.setMode('year')">
-            🏗 按楼龄
-          </button>
+          <button class="mode-btn active" id="mode-quadrant" onclick="App.setMode('quadrant')">◉ 四象限</button>
+          <button class="mode-btn" id="mode-price" onclick="App.setMode('price')">💰 均价</button>
+          <button class="mode-btn" id="mode-year" onclick="App.setMode('year')">🏗 楼龄</button>
         </div>
-        <button class="btn-heatmap" id="btn-heatmap" onclick="App.toggleHeatmap()">
-          🔥 热力图叠加
-        </button>
+      </div>
+
+      <!-- 工具按钮 -->
+      <div class="tool-row">
+        <button class="btn-tool btn-valley" id="btn-valley" onclick="App.toggleValleyMode()">🟢 洼地模式</button>
+        <button class="btn-tool btn-heatmap" id="btn-heatmap" onclick="App.toggleHeatmap()">🔥 热力图</button>
+        <button class="btn-tool btn-rings active" id="btn-rings" onclick="App.toggleRings()">🗺 环线</button>
       </div>
 
       <hr class="divider">
 
-      <!-- Search -->
+      <!-- 搜索 -->
       <div class="section">
         <div class="section-title">搜索小区</div>
         <div class="search-box">
-          <input type="text" id="search-input" placeholder="小区名关键词…"
-                 oninput="App.applyFilters()">
+          <input type="text" id="search-input" placeholder="小区名关键词…" oninput="App.applyFilters()">
           <span class="search-icon">🔍</span>
         </div>
       </div>
 
       <hr class="divider">
 
-      <!-- District -->
+      <!-- 行政区 -->
       <div class="section">
         <div class="section-title">行政区</div>
         <div class="district-list" id="district-list">
@@ -101,41 +100,37 @@
 
       <hr class="divider">
 
-      <!-- Price Filter -->
+      <!-- 价格区间 -->
       <div class="section">
         <div class="section-title">均价区间（元/㎡）</div>
         <div class="range-group">
           <div class="range-label">最低 <span id="price-min-val">0</span></div>
-          <input type="range" id="price-min" min="0" max="200000" step="5000" value="0"
-                 oninput="App.onPriceRangeChange()">
+          <input type="range" id="price-min" min="0" max="200000" step="5000" value="0" oninput="App.onPriceRangeChange()">
         </div>
         <div class="range-group">
           <div class="range-label">最高 <span id="price-max-val">20万+</span></div>
-          <input type="range" id="price-max" min="0" max="200000" step="5000" value="200000"
-                 oninput="App.onPriceRangeChange()">
+          <input type="range" id="price-max" min="0" max="200000" step="5000" value="200000" oninput="App.onPriceRangeChange()">
         </div>
       </div>
 
       <hr class="divider">
 
-      <!-- Year Filter -->
+      <!-- 建成年份 -->
       <div class="section">
         <div class="section-title">建成年份区间</div>
         <div class="range-group">
           <div class="range-label">最早 <span id="year-min-val">1970</span></div>
-          <input type="range" id="year-min" min="1970" max="2024" step="1" value="1970"
-                 oninput="App.onYearRangeChange()">
+          <input type="range" id="year-min" min="1970" max="2024" step="1" value="1970" oninput="App.onYearRangeChange()">
         </div>
         <div class="range-group">
           <div class="range-label">最晚 <span id="year-max-val">2024</span></div>
-          <input type="range" id="year-max" min="1970" max="2024" step="1" value="2024"
-                 oninput="App.onYearRangeChange()">
+          <input type="range" id="year-max" min="1970" max="2024" step="1" value="2024" oninput="App.onYearRangeChange()">
         </div>
       </div>
 
       <hr class="divider">
 
-      <!-- Legend -->
+      <!-- 图例 -->
       <div class="section">
         <div class="section-title">图例</div>
         <div id="legend-content"></div>
@@ -143,13 +138,10 @@
 
       <hr class="divider">
 
-      <!-- Result List -->
+      <!-- 结果列表 -->
       <div class="section">
         <div class="list-header">
-          <div class="section-title" style="margin:0">
-            结果列表 <span class="list-count" id="list-count"></span>
-          </div>
-          <span class="list-sort" id="list-sort-label"></span>
+          <div class="section-title" style="margin:0">结果列表 <span class="list-count" id="list-count"></span></div>
         </div>
         <div id="results-list" class="results-list">
           <div class="list-empty">加载数据后显示…</div>
@@ -158,7 +150,7 @@
 
       <hr class="divider">
 
-      <!-- Actions -->
+      <!-- 操作 -->
       <div class="section">
         <div class="action-row">
           <button class="btn-reset" onclick="App.resetFilters()">↺ 重置筛选</button>
@@ -166,17 +158,64 @@
         </div>
       </div>
 
-    </div><!-- /sidebar-body -->
+    </div><!-- /panel-filter -->
+
+    <!-- ── PANEL: 洼地榜 ── -->
+    <div class="tab-panel" id="panel-valley">
+      <div class="valley-header">
+        <div>🟢 洼地小区榜单</div>
+        <div class="valley-count-badge"><span id="valley-count">0</span> 个</div>
+      </div>
+      <div class="valley-desc">
+        价格低于所在区均价≥10%，且建成≥2009年（房龄≤15年）<br>
+        按偏差%从低到高排序；设置通勤后按总通勤时间重排
+      </div>
+      <div id="valley-list" class="results-list valley-list">
+        <div class="list-empty">加载数据后显示…</div>
+      </div>
+    </div>
+
+    <!-- ── PANEL: 通勤 ── -->
+    <div class="tab-panel" id="panel-commute">
+      <div class="section">
+        <div class="section-title">通勤方式</div>
+        <div class="mode-toggle">
+          <button class="mode-btn active" onclick="this.parentElement.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');window.commuteMode='driving'">🚗 驾车</button>
+          <button class="mode-btn" onclick="this.parentElement.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');window.commuteMode='transit'">🚇 公交</button>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">目的地 1</div>
+        <div class="commute-input-row">
+          <input type="text" id="commute-addr-0" class="commute-input" placeholder="输入上班地址…">
+          <button class="btn-primary" onclick="App.addCommuteTarget(0)">定位</button>
+        </div>
+        <div id="commute-tag-0" class="commute-tag" style="display:none"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">目的地 2（可选）</div>
+        <div class="commute-input-row">
+          <input type="text" id="commute-addr-1" class="commute-input" placeholder="第二个目的地…">
+          <button class="btn-primary" onclick="App.addCommuteTarget(1)">定位</button>
+        </div>
+        <div id="commute-tag-1" class="commute-tag" style="display:none"></div>
+      </div>
+      <div class="section">
+        <button id="btn-calc-commute" class="btn-calc-commute" onclick="App.calcCommute()">
+          🚗 计算视口内小区通勤时间
+        </button>
+        <div class="commute-hint">仅计算当前地图可见小区（最多100个），计算中请勿移动地图</div>
+        <button class="btn-reset" style="margin-top:6px;width:100%" onclick="App.clearCommute()">✕ 清空通勤数据</button>
+      </div>
+    </div>
+
   </div><!-- /sidebar -->
 
   <!-- ══ MAP AREA ══ -->
   <div id="map-container">
     <div id="map-loading">
       <div class="spinner"></div>
-      <div>输入 API Key 后点击「加载地图」</div>
-      <div style="margin-top:8px;font-size:12px;color:#999">
-        也可直接拖拽 communities.json 到此处预览数据结构
-      </div>
+      <div>输入 API Key 后点击「加载」</div>
     </div>
     <div id="map"></div>
     <div id="status-bar">就绪</div>
