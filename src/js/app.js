@@ -121,7 +121,12 @@ const App = (() => {
 
   // ── AMap 加载 ──────────────────────────────────────────────────────────────
   function initMap() {
-    const key = document.getElementById('api-key-input').value.trim();
+    const input = document.getElementById('api-key-input');
+    // 自动补 Key（config.js 已加载时）
+    if (!input.value.trim() && window.LOCAL_CONFIG?.amapKey) {
+      input.value = window.LOCAL_CONFIG.amapKey;
+    }
+    const key = input.value.trim();
     if (!key) { alert('请先输入高德地图 API Key'); return; }
     showLoading('正在加载高德地图 SDK...');
 
@@ -878,8 +883,12 @@ const App = (() => {
 
     const savedKey = window.LOCAL_CONFIG?.amapKey;
     if (savedKey) {
-      document.getElementById('api-key-input').value = savedKey;
-      setTimeout(() => initMap(), 200);
+      const input = document.getElementById('api-key-input');
+      input.value = savedKey;
+      input.style.background = '#f0faf4';
+      input.style.borderColor = '#27ae60';
+      // 等 DOM 完全稳定后再触发加载
+      setTimeout(() => initMap(), 600);
     }
   });
 
