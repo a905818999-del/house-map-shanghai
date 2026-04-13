@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>上海房源地图 · 洼地分析</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- 安全密钥必须在 AMap SDK 加载前设置 -->
-  <script src="js/config.js" onerror="window.LOCAL_CONFIG={}"></script>
+  <!-- 安全密钥必须在 AMap SDK 加载前设置（硬编码保证时序正确） -->
   <script>
-    if (window.LOCAL_CONFIG && LOCAL_CONFIG.securityJsCode) {
-      window._AMapSecurityConfig = { securityJsCode: LOCAL_CONFIG.securityJsCode };
-    }
+    window._AMapSecurityConfig = { securityJsCode: 'e808269f0141b67e76ee446b1542b3c0' };
+    window.LOCAL_CONFIG = {
+      amapKey: '1cf0650cf8cc24f862e1d3a1d023b93c',
+      securityJsCode: 'e808269f0141b67e76ee446b1542b3c0',
+      mapStyle: 'amap://styles/2bb510e892ed63c94e9128832a156164',
+    };
   </script>
 </head>
 <body>
