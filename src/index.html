@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>上海房源地图 · 洼地分析</title>
   <link rel="stylesheet" href="css/style.css">
+  <!-- 安全密钥必须在 AMap SDK 加载前设置 -->
+  <script src="js/config.js" onerror="window.LOCAL_CONFIG={}"></script>
+  <script>
+    if (window.LOCAL_CONFIG && LOCAL_CONFIG.securityJsCode) {
+      window._AMapSecurityConfig = { securityJsCode: LOCAL_CONFIG.securityJsCode };
+    }
+  </script>
 </head>
 <body>
 <div id="app">
@@ -223,7 +230,6 @@
   </div>
 
 </div>
-<script src="js/config.js" onerror="window.LOCAL_CONFIG={}"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

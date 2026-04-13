@@ -130,8 +130,7 @@ const App = (() => {
     if (!key) { alert('请先输入高德地图 API Key'); return; }
     showLoading('正在加载高德地图 SDK...');
 
-    const secCode = window.LOCAL_CONFIG?.securityJsCode;
-    if (secCode) window._AMapSecurityConfig = { securityJsCode: secCode };
+    // securityJsCode 已在 <head> 里预设，无需重复设置
 
     const old = document.getElementById('amap-script');
     if (old) old.remove();
