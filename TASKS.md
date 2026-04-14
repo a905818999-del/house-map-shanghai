@@ -1,22 +1,14 @@
 # 任务列表
 
-> 由 Claude 维护。完成任务后请更新状态。
+> 最后更新: 2026-04-15
 
-## 状态说明
-
-- `[ ]` 待开始
-- `[→]` 进行中
-- `[x]` 已完成
-- `[!]` 有问题，等决策
-
----
-
-## 分工一览
+## 团队分工
 
 | 角色 | 职责 |
 |------|------|
 | **Claude** | 整体规划、前端地图、数据清洗脚本 |
 | **WorkBuddy** | 数据抓取，输出 `data/raw/` 下的标准 JSON |
+| **她** | 高德地图 skill 支持 |
 
 > 详细数据格式和字段规范见 [`DATA_SPEC.md`](DATA_SPEC.md)
 
@@ -24,113 +16,111 @@
 
 ## 阶段 0：项目初始化 ✅
 
-- [x] **[Claude]** 创建仓库结构和协作文档
-- [x] **[Claude]** 确定技术方案：高德地图 JS API v2 + 原生 HTML/CSS/JS
-- [x] **[Claude]** 调研 GitHub 现有项目和数据集
-- [x] **[Claude]** 更新 ARCHITECTURE.md，确定小区级 schema 和数据流
-- [x] **[Claude]** 撰写 DATA_SPEC.md（WorkBuddy 执行文档）
+- [x] 创建仓库结构和协作文档
+- [x] 确定技术方案：高德地图 JS API v2 + 原生 HTML/CSS/JS
+- [x] 调研 GitHub 现有项目和数据集
+- [x] 更新 ARCHITECTURE.md，确定小区级 schema 和数据流
+- [x] 撰写 DATA_SPEC.md（WorkBuddy 执行文档）
 
 ---
 
-## 阶段 1：地图前端（Claude 负责）✅
+## 阶段 1：基础框架 ✅
 
-- [x] `src/index.html` — 布局、侧边栏、筛选面板、文件上传、热力图按钮
+- [x] `src/index.html` — 布局、侧边栏、筛选面板、文件上传
 - [x] `src/css/style.css` — 完整样式
-- [x] `src/js/app.js` — 全部逻辑：
-  - 高德地图动态加载、多路径数据加载、文件拖拽上传
-  - 颜色模式切换（按均价 / 按楼龄）
-  - **热力图叠加层**（AMap.HeatMap，随模式切换渐变方向）
-  - 小区 Marker、点击弹出 InfoWindow（均价/楼龄/双色条）
-  - 行政区 chip 筛选、价格/年份滑块、名称搜索
-  - 结果列表（可点击飞跳定位）、导出 CSV、Esc 关闭窗口
-  - 数据概览统计、色阶图例
+- [x] `src/js/app.js` — 基础逻辑
+- [x] 高德地图 JS API v2 集成 + API Key 自动加载
+- [x] 基础筛选（区、价格、楼龄）
+- [x] 热力图模式
+- [x] 侧边栏列表 + 排序 + 飞跳
+- [x] CSV 导出
+- [x] `scripts/start.bat` / `start.sh` 一键启动
 
-## 阶段 2b：数据管道（Claude 负责）✅
+---
+
+## 阶段 2a：数据管道 ✅
 
 - [x] `scripts/process.py` — 清洗管道（自动识别三种格式）
 - [x] `scripts/fetch_opensource.py` — 一键拉取开源数据集
-- [x] `scripts/start.bat` / `start.sh` — 一键启动
-- [x] **已获取真实数据**：`data/processed/communities.json`
+- [x] 已获取真实数据：`data/processed/communities.json`
   - 来源：WxxW2002/Spider（2023年，MIT协议）
-  - 42,983条挂牌 → 聚合出 **10,305 个上海小区**
+  - 42,983 条挂牌 → 聚合出 **10,305 个上海小区**
   - 均价覆盖 100%，建成年份覆盖 96%
-  - 覆盖全上海 16 个区，浦东最多（2303），长宁（710），闵行（1045）
-- [x] **子测通过（9/9）**，零 JS 报错，已推送 GitHub（commit 97eade8）
-
-**一键启动（Windows）：**
-```
-双击 scripts\start.bat
-```
-
-**手动启动：**
-```bash
-cd "house map"
-python -m http.server 8080
-# 访问 http://localhost:8080/src/
-# 粘贴高德 API Key → 加载地图
-```
-
-**立即获取真实数据（无需等 WorkBuddy）：**
-```bash
-python scripts/fetch_opensource.py
-# 自动下载 WxxW2002/Spider 2023年数据 + likkhello 2016年数据，合并处理
-```
+  - 覆盖全上海 16 个区
 
 ---
 
-## 阶段 2：数据采集（WorkBuddy 负责）
+## 阶段 2b：v2 重构 ✅
 
-> **详见 [`DATA_SPEC.md`](DATA_SPEC.md)**，里面有完整的字段规范、抓取目标和交付检查清单。
+### Step 1: 坐标修复 ✅
+- [x] process.py 加入 WGS-84 → GCJ-02 坐标转换
+- [x] 重新生成 communities.json（10,305 个小区全部转换）
 
-### ✅ 已完成（Claude 用开源数据替代）
-- 10,305 个上海小区坐标 + 挂牌均价 + 建成年份（WxxW2002/Spider 2023年数据）
-- 覆盖全上海 16 个区，**长宁 710 个，闵行 1045 个**
+### Step 2: 四象限分层渲染 ✅
+- [x] 删除 zoom ≤ 11 行政区色块
+- [x] 四象限逻辑（洼地🟢 / 警告🔴 / 新贵🟣 / 正常🟡）
+- [x] LOD 分层：zoom < 10 热力图 → 10-12 价格胶囊 → 12-14 四象限圆点 → ≥14 详细卡片
+- [x] 板块偏差%计算（按行政区均价）
 
-### 第二阶段：补充链家「参考均价」（成交价，比挂牌价更准）
+### Step 3: 环线 + CAZ 图层 ✅
+- [x] 内环（红色虚线）/ 中环（橙色虚线）/ 外环（灰色虚线）
+- [x] CAZ 核心活动区（蓝色半透明多边形）
+- [x] `data/rings.json` 坐标数据（OSM 导出 + GCJ-02 转换）
 
-**背景**：现有 avg_price 是挂牌均价（报价），链家小区详情页有「参考均价」字段，
-基于近期真实成交记录，更接近真实市场价格。
+### Step 4: 洼地模式 + 榜单 ✅
+- [x] 「洼地模式」开关（只显示绿色小区）
+- [x] 侧边栏「洼地榜」Tab，按偏差%排序
 
-- [ ] **[WorkBuddy]** 抓取链家小区详情页「参考均价」
-  - 输入：项目已提供 10,305 个小区的链家 URL（`source_url` 字段）
-  - 目标字段：`参考均价`（元/平方米）、`最近成交`（时间，可选）
-  - 优先覆盖：**长宁区、闵行区**（共约 1755 个小区）
-  - 输出：`data/raw/lianjia_ref_price_{YYYYMMDD}.json`
-  - 格式参考：`DATA_SPEC.md` → 「参考均价补充格式」一节
-
-- [ ] **[WorkBuddy]** 自查交付
-
-- [ ] **[Claude]** 收到后运行 `scripts/merge_ref_price.py` 合并进 communities.json
-
----
-
-## 阶段 3：数据清洗（Claude 负责）✅
-
-- [x] **[Claude]** 写 `scripts/process.py`：
-  - 读取 `data/raw/*.json`
-  - 去重（按 source_url 或 name+district）
-  - 坐标范围校验（上海范围）
-  - avg_price 单位校验（元/m²，不是万）
-  - build_year 格式校验（1950–2025 范围）
-  - 输出 `data/processed/communities.json`
+### Step 5: 通勤计算 ✅
+- [x] 支持 2 个目的地（AMap.PlaceSearch 地址搜索）
+- [x] 驾车 / 公交 模式切换
+- [x] 分批请求 + QPS 限流 + 结果缓存
+- [x] Marker 叠加通勤时间标注
+- [x] 侧边栏「通勤」Tab
 
 ---
 
-## 阶段 4：增强功能 ✅
+## 阶段 3：增强功能 ✅
 
-- [x] 热力图覆盖模式（AMap.HeatMap，随颜色模式切换）
-- [x] 小区列表面板（按筛选结果排序，可点击飞跳定位）
-- [x] 导出筛选结果为 CSV（含四象限、偏差%等字段）
-- [x] 支持收藏/标注关注小区（localStorage + ⭐Tab面板 + InfoWindow按钮）
+- [x] 收藏功能（localStorage 持久化）
+- [x] InfoWindow 收藏按钮
+- [x] 侧边栏「⭐ 收藏」Tab + 角标
+- [x] `scripts/merge_ref_price.py` 参考均价合并脚本
 
 ---
 
-## 备注区
+## 阶段 4：待验证/优化 🔄
 
-**坐标系**：高德地图用 GCJ-02，链家/贝壳页面内嵌坐标已是 GCJ-02，直接用。
+### 待验证（功能已写但未在真实浏览器充分测试）
+- [ ] 四象限圆点显示是否正确
+- [ ] 环线/CAZ 位置是否准确
+- [ ] 洼地模式筛选是否正常
+- [ ] 通勤计算是否能正常请求高德 API
+- [ ] 收藏功能是否正常工作
+- [ ] 坐标偏移是否已修复（小区标签对准真实位置）
+- [ ] Marker 卡顿问题是否解决
 
-**已知可用数据集（备选，免抓）**：
-- `github.com/WxxW2002/Spider` — MIT，2023，42,982条挂牌，含坐标+建造年份（需按小区聚合）
-- `github.com/likkhello/shanghai_lianjia_house_price` — 无协议，2016，14,363小区聚合，含坐标
+### 已知问题
+- [ ] Marker 样式需进一步优化（之前多次改动，最终效果待确认）
+- [ ] 数据是 2023 年挂牌价，非成交价，待 WorkBuddy 补充
 
-_有阻塞问题请在此记录_
+---
+
+## 阶段 5：数据迭代 ⬚
+
+### WorkBuddy 任务
+- [ ] 抓取链家小区详情页「参考均价」（基于近期成交）
+- [ ] 输出 `data/raw/lianjia_ref_price_YYYYMMDD.json`
+- [ ] 格式见 DATA_SPEC.md 第二阶段
+
+### 数据合并
+- [ ] 收到后运行 `scripts/merge_ref_price.py` 合并进 communities.json
+
+---
+
+## 配置信息
+
+- 高德 JS API Key: `1cf0650cf8cc24f862e1d3a1d023b93c`（Web端JS类型）
+- 安全密钥: `e808269f0141b67e76ee446b1542b3c0`
+- GeoHub 样式 ID: `2bb510e892ed63c94e9128832a156164`
+- 本地启动: 双击 `scripts\start.bat` → `http://localhost:8080/src/index.html`
