@@ -572,6 +572,7 @@ const App = (() => {
     const avg = districtAvg[c.district];
     const commute = commuteCache[c.id];
     const age = c.build_year ? 2026 - c.build_year : null;
+    const favored = isFavorite(c.id);
 
     infoWindow.setContent(`
       <div class="info-window">
@@ -593,7 +594,12 @@ const App = (() => {
         </div>
         ${c.subdistrict ? `<div class="info-row"><span class="info-key">📍 街道</span><span class="info-val">${escHtml(c.subdistrict)}</span></div>` : ''}
         ${commute ? `<div class="info-row"><span class="info-key">🚗 通勤</span><span class="info-val">目的地1: ${commute.t1}分 · 目的地2: ${commute.t2}分</span></div>` : ''}
-        ${c.source_url ? `<div style="margin-top:8px;text-align:right"><a href="${c.source_url}" target="_blank" style="font-size:11px;color:#1a73e8">链家详情 →</a></div>` : ''}
+        <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+          ${c.source_url ? `<a href="${c.source_url}" target="_blank" style="font-size:11px;color:#1a73e8">链家详情 →</a>` : '<span></span>'}
+          <button onclick="App.toggleFavorite('${c.id}')" style="border:none;background:${favored?'#FFF3E0':'#f5f5f5'};color:${favored?'#E65100':'#555'};padding:4px 10px;border-radius:12px;cursor:pointer;font-size:12px">
+            ${favored ? '★ 已收藏' : '☆ 收藏'}
+          </button>
+        </div>
       </div>`);
     infoWindow.open(map, marker.getPosition());
   }
@@ -793,12 +799,74 @@ const App = (() => {
     setStatus('通勤已清空');
   }
 
+  // ── 收藏功能 ───────────────────────────────────────────────────────────────
+  function loadFavorites() {
+    try { return new Set(JSON.parse(localStorage.getItem('house_map_favorites') || '[]')); }
+    catch (_) { return new Set(); }
+  }
+
+  function saveFavorites(favSet) {
+    localStorage.setItem('house_map_favorites', JSON.stringify([...favSet]));
+  }
+
+  function isFavorite(id) {
+    return loadFavorites().has(id);
+  }
+
+  function toggleFavorite(id) {
+    const favs = loadFavorites();
+    if (favs.has(id)) favs.delete(id);
+    else favs.add(id);
+    saveFavorites(favs);
+    updateFavoritesPanel();
+    // 刷新 InfoWindow（如果还开着，重新打开当前小区）
+    const target = allData.find(c => c.id === id);
+    if (target) {
+      const m = markers.find(mk => mk.getExtData()?.id === id);
+      if (m) openInfoWindow(m, target);
+    }
+  }
+
+  function updateFavoritesPanel() {
+    const el = document.getElementById('favorites-list');
+    if (!el) return;
+    const favs = loadFavorites();
+    // 更新 tab 角标 和 面板标题数字
+    const badge = document.getElementById('fav-count');
+    if (badge) badge.textContent = favs.size || '';
+    const panelCount = document.getElementById('fav-count-panel');
+    if (panelCount) panelCount.textContent = favs.size;
+    if (!favs.size) {
+      el.innerHTML = '<div class="list-empty">尚未收藏任何小区</div>';
+      return;
+    }
+    const favCommunities = allData.filter(c => favs.has(c.id));
+    el.innerHTML = favCommunities.map(c => {
+      const quad = getQuadrant(c);
+      const color = Q[quad].color;
+      const dev = getDeviation(c);
+      const devTxt = dev != null ? `<span style="color:${dev<=0?'#27AE60':'#E74C3C'};font-size:10px">${dev>=0?'+':''}${dev}%</span>` : '';
+      return `<div class="result-item">
+        <div class="result-dot" style="background:${color}"></div>
+        <div class="result-info" onclick="App.flyTo(${c.lng},${c.lat},'${c.id}')" style="cursor:pointer">
+          <div class="result-name">${escHtml(c.name)}</div>
+          <div class="result-meta">
+            <b style="color:${color}">${c.avg_price != null ? (c.avg_price/10000).toFixed(1)+'万' : '均价未知'}</b>
+            ${devTxt} · ${c.build_year ?? '—'}年 · ${c.district ?? ''}
+          </div>
+        </div>
+        <button class="fav-remove-btn" onclick="App.toggleFavorite('${c.id}')" title="取消收藏">✕</button>
+      </div>`;
+    }).join('');
+  }
+
   // ── Tab 切换 ───────────────────────────────────────────────────────────────
   function switchTab(tab) {
-    ['filter','valley','commute'].forEach(t => {
+    ['filter','valley','commute','favorites'].forEach(t => {
       document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
       document.getElementById(`panel-${t}`)?.classList.toggle('active', t === tab);
     });
+    if (tab === 'favorites') updateFavoritesPanel();
   }
 
   // ── 导出 CSV ──────────────────────────────────────────────────────────────
@@ -896,6 +964,7 @@ const App = (() => {
     openFilePicker, flyTo, exportCsv,
     toggleHeatmap, toggleRings, toggleValleyMode,
     addCommuteTarget, calcCommute, clearCommute,
+    toggleFavorite,
   };
 
 })();

@@ -400,3 +400,37 @@ html, body {
   border-top: 7px solid; /* color set inline */
   margin: 0 auto;
 }
+
+/* ── 收藏功能 ── */
+.fav-badge {
+  display: inline-block;
+  min-width: 14px;
+  height: 14px;
+  background: #E65100;
+  color: #fff;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  padding: 0 3px;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+.fav-badge:empty { display: none; }
+
+.fav-remove-btn {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #bbb;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.fav-remove-btn:hover {
+  color: #E74C3C;
+  background: #fef0f0;
+}

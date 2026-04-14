@@ -64,6 +64,7 @@
       <button class="tab-btn active" id="tab-filter" onclick="App.switchTab('filter')">筛选</button>
       <button class="tab-btn" id="tab-valley" onclick="App.switchTab('valley')">🟢 洼地榜</button>
       <button class="tab-btn" id="tab-commute" onclick="App.switchTab('commute')">🚗 通勤</button>
+      <button class="tab-btn" id="tab-favorites" onclick="App.switchTab('favorites')">⭐ 收藏<span id="fav-count" class="fav-badge"></span></button>
     </div>
 
     <!-- ── PANEL: 筛选 ── -->
@@ -215,6 +216,17 @@
         </button>
         <div class="commute-hint">仅计算当前地图可见小区（最多100个），计算中请勿移动地图</div>
         <button class="btn-reset" style="margin-top:6px;width:100%" onclick="App.clearCommute()">✕ 清空通勤数据</button>
+      </div>
+    </div>
+
+    <!-- ── PANEL: 收藏 ── -->
+    <div class="tab-panel" id="panel-favorites">
+      <div class="valley-header">
+        <div>⭐ 我的收藏</div>
+        <div class="valley-count-badge"><span id="fav-count-panel">0</span> 个</div>
+      </div>
+      <div id="favorites-list" class="results-list valley-list">
+        <div class="list-empty">尚未收藏任何小区</div>
       </div>
     </div>
 
