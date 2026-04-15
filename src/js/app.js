@@ -42,7 +42,7 @@ const App = (() => {
   const ZOOM_HEATMAP_ONLY = 10;
   const ZOOM_SPARSE       = 12;
   const ZOOM_QUAD         = 14; // 12-14 四象限模式
-  const LOD_CAPS = { sparse: 150, quad: 300 };
+  const LOD_CAPS = { sparse: 80, quad: 150 };
 
   const DATA_PATHS = [
     '../data/processed/communities.json',
@@ -182,15 +182,21 @@ const App = (() => {
     }
     if (!json) return;
 
-    // 三条环线
-    Object.values(json.rings).forEach(ring => {
+    // 三条环线（内环最粗实线，中环稍细实线，外环细虚线）
+    const RING_STYLE = {
+      inner:  { weight: 3.5, opacity: 0.9, style: 'solid',  dash: null },
+      middle: { weight: 2.5, opacity: 0.8, style: 'solid',  dash: null },
+      outer:  { weight: 1.5, opacity: 0.4, style: 'dashed', dash: [6, 6] },
+    };
+    Object.entries(json.rings).forEach(([key, ring]) => {
+      const s = RING_STYLE[key] || { weight: 2, opacity: 0.7, style: 'dashed', dash: ring.dash };
       const pl = new AMap.Polyline({
         path: ring.path,
         strokeColor: ring.color,
-        strokeWeight: 2,
-        strokeOpacity: 0.7,
-        strokeStyle: 'dashed',
-        strokeDasharray: ring.dash,
+        strokeWeight: s.weight,
+        strokeOpacity: s.opacity,
+        strokeStyle: s.style,
+        ...(s.dash ? { strokeDasharray: s.dash } : {}),
         lineJoin: 'round',
         zIndex: 5,
       });
