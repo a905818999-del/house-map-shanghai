@@ -1,0 +1,25 @@
+{
+  "name": "house-map",
+  "version": "1.0.0",
+  "description": "上海房源地图 — 可视化展示上海各区房源数据，叠加地图信息辅助选房决策。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests configured\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a905818999-del/house-map-shanghai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/a905818999-del/house-map-shanghai/issues"
+  },
+  "homepage": "https://github.com/a905818999-del/house-map-shanghai#readme",
+  "dependencies": {
+    "d3-delaunay": "^6.0.4",
+    "playwright": "^1.59.1"
+  }
+}

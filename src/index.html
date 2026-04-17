@@ -211,11 +211,23 @@
         <div id="commute-tag-1" class="commute-tag" style="display:none"></div>
       </div>
       <div class="section">
+        <button id="btn-draw-isochrone" class="btn-calc-commute" onclick="App.drawIsochrone()" style="background:#2980B9">
+          🗺 画等时圈（驾车25min / 公交35min）
+        </button>
+        <div class="commute-hint">向16个方向采样路径，生成可达范围多边形</div>
+      </div>
+      <div class="section">
         <button id="btn-calc-commute" class="btn-calc-commute" onclick="App.calcCommute()">
           🚗 计算视口内小区通勤时间
         </button>
         <div class="commute-hint">仅计算当前地图可见小区（最多100个），计算中请勿移动地图</div>
         <button class="btn-reset" style="margin-top:6px;width:100%" onclick="App.clearCommute()">✕ 清空通勤数据</button>
+      </div>
+      <div class="section">
+        <button class="btn-calc-commute" style="background:#1a6b4a" onclick="App.openIsochroneMap()">
+          🌡 等时圈热力图（全城）
+        </button>
+        <div class="commute-hint">基于预计算数据，全城 Voronoi 染色。需先运行 precompute_commute_iso.mjs</div>
       </div>
     </div>
 

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>通勤等时圈</title>
+  <script>
+    window._AMapSecurityConfig = { securityJsCode: 'e808269f0141b67e76ee446b1542b3c0' };
+  </script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=1cf0650cf8cc24f862e1d3a1d023b93c&plugin=AMap.InfoWindow"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6/dist/d3-delaunay.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── 顶栏 ── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #topbar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #e6edf3;
+      white-space: nowrap;
+    }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .back-btn:hover { background: #30363d; color: #e6edf3; }
+
+    /* 模式切换 */
+    .mode-tabs {
+      display: flex;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .mode-tab {
+      padding: 5px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #8b949e;
+      transition: all 0.15s;
+      border: none;
+      background: transparent;
+    }
+    .mode-tab.active {
+      background: #1f6feb;
+      color: #fff;
+    }
+    .mode-tab:hover:not(.active) { background: #30363d; color: #e6edf3; }
+
+    /* 目标地点 */
+    #target-info {
+      font-size: 12px;
+      color: #8b949e;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #target-info span { color: #58a6ff; }
+
+    /* 图层开关 */
+    .layer-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .layer-btn.active {
+      background: #0d419d;
+      border-color: #1f6feb;
+      color: #58a6ff;
+    }
+    .layer-btn:hover:not(.active) { background: #30363d; color: #e6edf3; }
+
+    /* 状态 */
+    #status {
+      font-size: 12px;
+      color: #8b949e;
+      white-space: nowrap;
+    }
+    #status.loading { color: #f0883e; }
+    #status.ok { color: #3fb950; }
+    #status.error { color: #f85149; }
+
+    /* ── 地图 ── */
+    #map {
+      flex: 1;
+      position: relative;
+    }
+
+    /* ── 图例 ── */
+    #legend {
+      position: absolute;
+      bottom: 24px;
+      right: 12px;
+      background: rgba(22, 27, 34, 0.92);
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 12px 14px;
+      z-index: 200;
+      backdrop-filter: blur(8px);
+    }
+    #legend h4 {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0;
+      font-size: 12px;
+      color: #c9d1d9;
+    }
+    .legend-swatch {
+      width: 28px;
+      height: 10px;
+      border-radius: 3px;
+      opacity: 0.85;
+    }
+
+    /* ── 无数据提示 ── */
+    #no-data {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      z-index: 300;
+    }
+    #no-data h2 { font-size: 20px; color: #8b949e; margin-bottom: 8px; }
+    #no-data p { font-size: 13px; color: #6e7681; max-width: 320px; line-height: 1.6; }
+    #no-data code {
+      display: block;
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: #21262d;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #58a6ff;
+      text-align: left;
+      font-family: monospace;
+    }
+
+    /* ── 目标标记样式 ── */
+    .target-marker {
+      width: 20px;
+      height: 20px;
+      background: #f0883e;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <a href="index.html" class="back-btn">← 返回</a>
+  <h1>通勤等时圈</h1>
+
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="driving">🚗 驾车</button>
+    <button class="mode-tab" data-mode="transit">🚇 公交</button>
+  </div>
+
+  <div id="target-info">目标: <span id="target-name">-</span></div>
+
+  <button class="layer-btn active" id="layer-toggle">
+    <span>◉</span> 等时圈图层
+  </button>
+
+  <div id="status">初始化中…</div>
+</div>
+
+<div id="map">
+  <div id="no-data">
+    <h2>暂无预计算数据</h2>
+    <p>请先运行预计算脚本生成通勤数据：</p>
+    <code>node scripts/precompute_commute_iso.mjs \<br>
+  --target-lng &lt;工作地点经度&gt; \<br>
+  --target-lat &lt;工作地点纬度&gt; \<br>
+  --mode driving</code>
+    <p style="margin-top:10px">或从主页面的「职业」面板中设置工作地点后点击「预计算」</p>
+  </div>
+
+  <div id="legend">
+    <h4>通勤时间</h4>
+    <div class="legend-item"><div class="legend-swatch" style="background:#1a9641"></div> ≤ 15 分钟</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#74c476"></div> 15 – 25 分钟</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#c7e9ad"></div> 25 – 35 分钟</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f7e56a"></div> 35 – 45 分钟</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f4854f"></div> 45 – 55 分钟</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#d7191c"></div> 55+ 分钟</div>
+  </div>
+</div>
+
+<script>
+// ── 颜色配置 ─────────────────────────────────────────────────────────────────
+const TIER_COLORS = [
+  '#1a9641', // 0: ≤15
+  '#74c476', // 1: 15-25
+  '#c7e9ad', // 2: 25-35
+  '#f7e56a', // 3: 35-45
+  '#f4854f', // 4: 45-55
+  '#d7191c', // 5: 55+
+];
+
+const TIER_LABELS = ['≤15 min', '15–25 min', '25–35 min', '35–45 min', '45–55 min', '55+ min'];
+
+// ── 状态 ─────────────────────────────────────────────────────────────────────
+let map = null;
+let currentMode = 'driving';
+let layerOn = true;
+let isoPolygons = [];     // 当前渲染的 AMap.Polygon[]
+let targetMarker = null;
+let dataCache = {};       // { driving: {...}, transit: {...} }
+
+// ── 读取工作地点 ─────────────────────────────────────────────────────────────
+function getTargetFromStorage() {
+  try {
+    // 从 localStorage 读（与主页面共享）
+    const raw = localStorage.getItem('commuteTargets');
+    if (raw) {
+      const targets = JSON.parse(raw);
+      if (targets && targets.length > 0) return targets[0];
+    }
+    // URL 参数 fallback
+    const params = new URLSearchParams(location.search);
+    const lng = parseFloat(params.get('lng'));
+    const lat = parseFloat(params.get('lat'));
+    const name = params.get('name') || '工作地点';
+    if (lng && lat) return { lng, lat, name };
+  } catch (e) {}
+  return null;
+}
+
+// ── 状态工具 ─────────────────────────────────────────────────────────────────
+const $status = document.getElementById('status');
+function setStatus(msg, cls = '') {
+  $status.textContent = msg;
+  $status.className = cls;
+}
+
+// ── 数据加载 ─────────────────────────────────────────────────────────────────
+async function loadData(mode) {
+  if (dataCache[mode]) return dataCache[mode];
+
+  const paths = [
+    `../data/processed/commute_iso_${mode}.json`,
+    `./data/processed/commute_iso_${mode}.json`,
+  ];
+
+  for (const p of paths) {
+    try {
+      const res = await fetch(p);
+      if (!res.ok) continue;
+      const data = await res.json();
+      dataCache[mode] = data;
+      return data;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// ── 清除图层 ─────────────────────────────────────────────────────────────────
+function clearPolygons() {
+  isoPolygons.forEach(p => map.remove(p));
+  isoPolygons = [];
+}
+
+// ── Delaunay 三角渲染 ────────────────────────────────────────────────────────
+//
+// 思路：
+//   1. 取所有有效点（有 tier 值）
+//   2. 用 d3-delaunay 构建 Voronoi 图
+//   3. 每个 Voronoi 胞元按其对应小区的 tier 着色
+//   4. 渲染为 AMap.Polygon（半透明填充）
+//
+function renderIsochrone(data) {
+  clearPolygons();
+  if (!data || !data.points || data.points.length === 0) return;
+
+  const points = data.points.filter(p => p.tier !== null && p.lat && p.lng);
+  if (points.length === 0) return;
+
+  setStatus(`渲染 ${points.length} 个点...`, 'loading');
+
+  // 坐标系：高德地图用 [lng, lat]，Delaunay 用 [x, y]=[lng,lat]
+  const coords = points.map(p => [p.lng, p.lat]);
+
+  // 地图边界（稍微扩展一点）
+  const bounds = map.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const pad = 0.3;
+  const extent = [
+    sw.getLng() - pad,
+    sw.getLat() - pad,
+    ne.getLng() + pad,
+    ne.getLat() + pad,
+  ];
+
+  const delaunay = d3.Delaunay.from(coords);
+  const voronoi = delaunay.voronoi(extent);
+
+  const polygons = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const cell = voronoi.cellPolygon(i);
+    if (!cell) continue;
+
+    const tier = points[i].tier;
+    const color = TIER_COLORS[tier];
+
+    // cell 是 [[lng,lat], ...] 格式
+    const path = cell.map(([lng, lat]) => [lng, lat]);
+
+    const poly = new AMap.Polygon({
+      path,
+      fillColor: color,
+      fillOpacity: 0.55,
+      strokeColor: color,
+      strokeOpacity: 0.2,
+      strokeWeight: 0.5,
+    });
+
+    // 点击显示信息
+    const p = points[i];
+    poly.on('click', () => {
+      const info = new AMap.InfoWindow({
+        content: `<div style="padding:8px;font-size:13px;line-height:1.8">
+          <b>${p.name}</b><br>
+          通勤时间: <b>${p.minutes} 分钟</b><br>
+          档位: ${TIER_LABELS[p.tier]}
+        </div>`,
+        offset: new AMap.Pixel(0, -10),
+      });
+      info.open(map, new AMap.LngLat(p.lng, p.lat));
+    });
+
+    polygons.push(poly);
+  }
+
+  map.add(polygons);
+  isoPolygons = polygons;
+
+  setStatus(`已渲染 ${points.length} 个小区`, 'ok');
+}
+
+// ── 切换模式 ─────────────────────────────────────────────────────────────────
+async function switchMode(mode) {
+  currentMode = mode;
+
+  document.querySelectorAll('.mode-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+
+  if (!layerOn) return;
+
+  setStatus('加载数据…', 'loading');
+  const data = await loadData(mode);
+
+  if (!data) {
+    clearPolygons();
+    document.getElementById('no-data').style.display = 'block';
+    setStatus('无数据', 'error');
+    return;
+  }
+
+  document.getElementById('no-data').style.display = 'none';
+
+  // 验证 target 匹配
+  const target = getTargetFromStorage();
+  if (target && data._meta) {
+    const m = data._meta;
+    const dist = Math.hypot(m.target.lng - target.lng, m.target.lat - target.lat);
+    if (dist > 0.01) {
+      setStatus(`⚠ 数据目标与当前工作地点不同 (dist=${dist.toFixed(3)})`, 'loading');
+    }
+  }
+
+  renderIsochrone(data);
+}
+
+// ── 图层开关 ─────────────────────────────────────────────────────────────────
+function toggleLayer() {
+  layerOn = !layerOn;
+  const btn = document.getElementById('layer-toggle');
+  btn.classList.toggle('active', layerOn);
+
+  if (layerOn) {
+    switchMode(currentMode);
+  } else {
+    clearPolygons();
+    setStatus('图层已关闭');
+  }
+}
+
+// ── 目标标记 ─────────────────────────────────────────────────────────────────
+function placeTargetMarker(target) {
+  if (targetMarker) map.remove(targetMarker);
+
+  const marker = new AMap.Marker({
+    position: [target.lng, target.lat],
+    content: '<div class="target-marker"></div>',
+    offset: new AMap.Pixel(-10, -10),
+    zIndex: 200,
+    title: target.name,
+  });
+  map.add(marker);
+  targetMarker = marker;
+
+  document.getElementById('target-name').textContent = target.name || `${target.lng.toFixed(4)}, ${target.lat.toFixed(4)}`;
+}
+
+// ── 初始化 ───────────────────────────────────────────────────────────────────
+function init() {
+  map = new AMap.Map('map', {
+    center: [121.4737, 31.2304],
+    zoom: 11,
+    mapStyle: 'amap://styles/dark',
+    features: ['bg', 'road', 'building'],
+  });
+
+  // 读取目标地点
+  const target = getTargetFromStorage();
+  if (target) {
+    placeTargetMarker(target);
+    map.setCenter([target.lng, target.lat]);
+    // 加载初始数据
+    setStatus('加载数据…', 'loading');
+    loadData(currentMode).then(data => {
+      if (data) {
+        document.getElementById('no-data').style.display = 'none';
+        renderIsochrone(data);
+      } else {
+        document.getElementById('no-data').style.display = 'block';
+        setStatus('无预计算数据', 'error');
+      }
+    });
+  } else {
+    document.getElementById('target-name').textContent = '未设置（请在主页面职业面设置）';
+    setStatus('未设置工作地点', 'error');
+    document.getElementById('no-data').style.display = 'block';
+  }
+
+  // 模式切换
+  document.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  });
+
+  // 图层开关
+  document.getElementById('layer-toggle').addEventListener('click', toggleLayer);
+
+  // 地图缩放后重新渲染（Voronoi extent 需更新）
+  map.on('zoomend', () => {
+    if (layerOn && dataCache[currentMode]) {
+      renderIsochrone(dataCache[currentMode]);
+    }
+  });
+}
+
+// d3-delaunay 挂载检查
+function waitForD3(cb) {
+  if (window.d3 && window.d3.Delaunay) { cb(); return; }
+  let t = 0;
+  const id = setInterval(() => {
+    t += 100;
+    if (window.d3 && window.d3.Delaunay) { clearInterval(id); cb(); }
+    else if (t > 5000) { clearInterval(id); setStatus('d3-delaunay 加载失败', 'error'); }
+  }, 100);
+}
+
+if (window.AMap) {
+  waitForD3(init);
+} else {
+  window.onload = () => waitForD3(init);
+}
+</script>
+</body>
+</html>
