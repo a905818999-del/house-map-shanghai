@@ -2,6 +2,34 @@
 
 上海房源地图 — 可视化展示上海各区房源数据，叠加地图信息辅助选房决策。
 
+## 功能
+
+| 模块 | 入口 | 状态 |
+|------|------|------|
+| 主地图（均价/楼龄热力图） | `src/index.html` | 上线 |
+| 通勤等时圈（驾车/公交 Voronoi） | `src/commute_iso.html` | 上线 |
+
+## 快速开始
+
+```bash
+# 安装依赖
+npm install
+
+# 启动主地图
+npm start         # → http://localhost:8900/src/
+
+# 启动通勤等时圈
+npm run dev       # → http://localhost:8900/src/commute_iso.html
+
+# 验证数据完整性
+npm run verify:data
+
+# 验证 Python 脚本语法
+npm run verify:py
+```
+
+> 需要在 `src/js/config.js` 中配置高德地图 API Key（参考 `src/js/config.js.example`）。
+
 ## 团队分工
 
 | 角色 | 负责内容 |
@@ -12,12 +40,11 @@
 
 ## 工作规则
 
-### 所有人必须遵守
-
 1. **以 GitHub 为唯一协作中心** — 代码、数据、文档全部提交到本仓库，不在聊天窗口里传文件
 2. **先看文档再开工** — 每次开始工作前，先读 `TASKS.md` 确认当前任务，不重复劳动
 3. **完成即更新状态** — 任务完成后，在 `TASKS.md` 里把对应任务标记为完成
 4. **数据格式不得自行修改** — 数据 schema 由 Claude 定义，OpenClaw 严格按照 schema 输出
+5. **不在 main 上直接提交** — 按分支规范建分支，PR 合并
 
 ### Claude 的职责
 
@@ -40,17 +67,27 @@
 
 ```
 house-map-shanghai/
-├── README.md          # 本文档（分工 + 规则）
+├── CLAUDE.md          # Claude 开发守则（AI 必读）
+├── ARCHITECTURE.md    # 技术架构 + Schema
 ├── TASKS.md           # 当前任务列表（Claude 维护）
-├── ARCHITECTURE.md    # 技术架构说明（Claude 维护）
+├── README.md          # 本文档
 ├── data/
-│   ├── raw/           # OpenClaw 抓取的原始数据
-│   ├── amap/          # 高德地图 skill 输出数据
-│   └── processed/     # Claude 处理后的数据
-├── src/               # 前端源码
-└── scripts/           # 数据处理脚本
+│   ├── raw/           # 原始数据（不入 git）
+│   ├── external/      # 外部参考数据
+│   └── processed/     # 清洗后数据（入 git，boundaries.json 除外）
+├── scripts/           # 数据脚本（Python + Node.js）
+└── src/               # 前端源码
+    ├── index.html
+    ├── commute_iso.html
+    ├── css/style.css
+    └── js/app.js
 ```
 
-## 快速开始
+## 文档索引
 
-> 开始前请先阅读 `TASKS.md` 确认你负责的任务。
+| 文档 | 内容 |
+|------|------|
+| `CLAUDE.md` | Claude 开发守则（分支/提交规范、验证流程） |
+| `ARCHITECTURE.md` | 技术架构、数据 Schema、脚本清单 |
+| `TASKS.md` | 当前任务列表 |
+| `.github/pull_request_template.md` | PR checklist |
