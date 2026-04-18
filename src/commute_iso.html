@@ -260,8 +260,6 @@ let isoLayers = [];     // Polygon[] 或 Marker[]
 let targetMarker = null;
 let dataCache = {};
 let infoWindow = null;
-let lastRenderMode = null;  // 'voronoi' | 'labels'，避免跨阈值外的重复重建
-let moveDebounceTimer = null;
 
 function getTargetFromStorage() {
   try {
@@ -427,36 +425,27 @@ function renderLabels(points) {
 }
 
 // ── 统一渲染入口 ──────────────────────────────────────────────────────────────
-function renderIsochrone(data, forceRebuild = false) {
+function renderIsochrone(data) {
+  clearLayers();
   if (!data || !data.points || data.points.length === 0) return;
 
   const points = data.points.filter(p => p.tier !== null && p.lat && p.lng);
   if (points.length === 0) return;
 
   const zoom = map.getZoom();
-  const newMode = zoom < ZOOM_DETAIL ? 'voronoi' : 'labels';
+  setStatus(`渲染 ${points.length} 个小区…`, 'loading');
 
-  // Voronoi 模式：只有首次或强制重建才销毁重建（缩放不过阈值不重建）
-  if (newMode === 'voronoi') {
-    if (lastRenderMode === 'voronoi' && !forceRebuild) return;
-    clearLayers();
-    setStatus(`渲染 ${points.length} 个小区…`, 'loading');
+  if (zoom < ZOOM_DETAIL) {
     renderVoronoi(points);
   } else {
-    // 标签模式：每次平移/缩放进来都刷新可视区域（但 Voronoi→labels 需先清除）
-    if (lastRenderMode === 'voronoi') clearLayers();
-    else clearLayers();  // labels 也需清除旧 markers，但代价小（可视区域内）
-    setStatus(`渲染中…`, 'loading');
     renderLabels(points);
   }
 
-  lastRenderMode = newMode;
   setStatus(`${points.length} 个小区 · ${currentMode === 'driving' ? '驾车' : '公交'}`, 'ok');
 }
 
 async function switchMode(mode) {
   currentMode = mode;
-  lastRenderMode = null;  // 切换模式强制重建
   document.querySelectorAll('.mode-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.mode === mode);
   });
@@ -475,7 +464,6 @@ async function switchMode(mode) {
 
 function toggleLayer() {
   layerOn = !layerOn;
-  lastRenderMode = null;  // 重新开启时强制重建
   document.getElementById('layer-toggle').classList.toggle('active', layerOn);
   if (layerOn) {
     switchMode(currentMode);
@@ -536,23 +524,16 @@ function init() {
   });
   document.getElementById('layer-toggle').addEventListener('click', toggleLayer);
 
-  // 缩放时切换渲染模式（只在跨越阈值时重建 Voronoi）
+  // 缩放时切换渲染模式
   map.on('zoomend', () => {
-    if (!layerOn || !dataCache[currentMode]) return;
-    const zoom = map.getZoom();
-    const newMode = zoom < ZOOM_DETAIL ? 'voronoi' : 'labels';
-    if (newMode !== lastRenderMode) {
-      renderIsochrone(dataCache[currentMode], true);
-    }
+    if (layerOn && dataCache[currentMode]) renderIsochrone(dataCache[currentMode]);
   });
 
-  // 平移后（标签模式）重新渲染可视区域，debounce 300ms
+  // 平移后（标签模式）重新渲染可视区域
   map.on('moveend', () => {
-    if (!layerOn || !dataCache[currentMode] || map.getZoom() < ZOOM_DETAIL) return;
-    clearTimeout(moveDebounceTimer);
-    moveDebounceTimer = setTimeout(() => {
+    if (layerOn && dataCache[currentMode] && map.getZoom() >= ZOOM_DETAIL) {
       renderIsochrone(dataCache[currentMode]);
-    }, 300);
+    }
   });
 }
 
