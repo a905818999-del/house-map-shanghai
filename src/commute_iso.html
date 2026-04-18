@@ -7,7 +7,8 @@
   <script>
     window._AMapSecurityConfig = { securityJsCode: 'e808269f0141b67e76ee446b1542b3c0' };
   </script>
-  <script src="https://webapi.amap.com/maps?v=2.0&key=1cf0650cf8cc24f862e1d3a1d023b93c&plugin=AMap.InfoWindow,AMap.CircleMarker"></script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=1cf0650cf8cc24f862e1d3a1d023b93c&plugin=AMap.InfoWindow"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6/dist/d3-delaunay.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -256,19 +257,20 @@ const TIER_LABELS = ['≤15 min', '15–25 min', '25–35 min', '35–45 min', '
 let map = null;
 let currentMode = 'driving';
 let layerOn = true;
-let isoMarkers = [];      // 当前渲染的 AMap.CircleMarker[]
+let isoPolygons = [];     // 当前渲染的 AMap.Polygon[]
 let targetMarker = null;
 let dataCache = {};       // { driving: {...}, transit: {...} }
-let infoWindow = null;
 
 // ── 读取工作地点 ─────────────────────────────────────────────────────────────
 function getTargetFromStorage() {
   try {
+    // 从 localStorage 读（与主页面共享）
     const raw = localStorage.getItem('commuteTargets');
     if (raw) {
       const targets = JSON.parse(raw);
       if (targets && targets.length > 0) return targets[0];
     }
+    // URL 参数 fallback
     const params = new URLSearchParams(location.search);
     const lng = parseFloat(params.get('lng'));
     const lat = parseFloat(params.get('lat'));
@@ -307,69 +309,86 @@ async function loadData(mode) {
 }
 
 // ── 清除图层 ─────────────────────────────────────────────────────────────────
-function clearMarkers() {
-  if (isoMarkers.length > 0) map.remove(isoMarkers);
-  isoMarkers = [];
+function clearPolygons() {
+  isoPolygons.forEach(p => map.remove(p));
+  isoPolygons = [];
 }
 
-// ── CircleMarker 渲染 ────────────────────────────────────────────────────────
+// ── Delaunay 三角渲染 ────────────────────────────────────────────────────────
 //
-// 每个小区渲染一个半透明圆，半径随缩放级别自动调整
-// 鼠标悬停/点击显示小区名+通勤时间
+// 思路：
+//   1. 取所有有效点（有 tier 值）
+//   2. 用 d3-delaunay 构建 Voronoi 图
+//   3. 每个 Voronoi 胞元按其对应小区的 tier 着色
+//   4. 渲染为 AMap.Polygon（半透明填充）
 //
-function getRadius() {
-  const zoom = map.getZoom();
-  // 缩放级别越小，圆越大，保证连续覆盖感
-  if (zoom >= 14) return 300;
-  if (zoom >= 13) return 500;
-  if (zoom >= 12) return 800;
-  if (zoom >= 11) return 1200;
-  return 1800;
-}
-
 function renderIsochrone(data) {
-  clearMarkers();
+  clearPolygons();
   if (!data || !data.points || data.points.length === 0) return;
 
   const points = data.points.filter(p => p.tier !== null && p.lat && p.lng);
   if (points.length === 0) return;
 
-  setStatus(`渲染 ${points.length} 个小区…`, 'loading');
+  setStatus(`渲染 ${points.length} 个点...`, 'loading');
 
-  if (!infoWindow) {
-    infoWindow = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -8) });
+  // 坐标系：高德地图用 [lng, lat]，Delaunay 用 [x, y]=[lng,lat]
+  const coords = points.map(p => [p.lng, p.lat]);
+
+  // 地图边界（稍微扩展一点）
+  const bounds = map.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const pad = 0.3;
+  const extent = [
+    sw.getLng() - pad,
+    sw.getLat() - pad,
+    ne.getLng() + pad,
+    ne.getLat() + pad,
+  ];
+
+  const delaunay = d3.Delaunay.from(coords);
+  const voronoi = delaunay.voronoi(extent);
+
+  const polygons = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const cell = voronoi.cellPolygon(i);
+    if (!cell) continue;
+
+    const tier = points[i].tier;
+    const color = TIER_COLORS[tier];
+
+    // cell 是 [[lng,lat], ...] 格式
+    const path = cell.map(([lng, lat]) => [lng, lat]);
+
+    const poly = new AMap.Polygon({
+      path,
+      fillColor: color,
+      fillOpacity: 0.55,
+      strokeColor: color,
+      strokeOpacity: 0.2,
+      strokeWeight: 0.5,
+    });
+
+    // 点击显示信息
+    const p = points[i];
+    poly.on('click', () => {
+      const info = new AMap.InfoWindow({
+        content: `<div style="padding:8px;font-size:13px;line-height:1.8">
+          <b>${p.name}</b><br>
+          通勤时间: <b>${p.minutes} 分钟</b><br>
+          档位: ${TIER_LABELS[p.tier]}
+        </div>`,
+        offset: new AMap.Pixel(0, -10),
+      });
+      info.open(map, new AMap.LngLat(p.lng, p.lat));
+    });
+
+    polygons.push(poly);
   }
 
-  const radius = getRadius();
-  const markers = points.map(p => {
-    const color = TIER_COLORS[p.tier];
-    const cm = new AMap.CircleMarker({
-      center: [p.lng, p.lat],
-      radius,
-      fillColor: color,
-      fillOpacity: 0.72,
-      strokeColor: color,
-      strokeOpacity: 0.0,
-      strokeWeight: 0,
-      cursor: 'pointer',
-    });
-
-    cm.on('click', () => {
-      infoWindow.setContent(
-        `<div style="padding:8px 10px;font-size:13px;line-height:1.8;color:#222">
-          <b>${p.name}</b><br>
-          通勤时间: <b>${p.minutes ?? '–'} 分钟</b><br>
-          <span style="color:${color};font-weight:600">${TIER_LABELS[p.tier]}</span>
-        </div>`
-      );
-      infoWindow.open(map, [p.lng, p.lat]);
-    });
-
-    return cm;
-  });
-
-  map.add(markers);
-  isoMarkers = markers;
+  map.add(polygons);
+  isoPolygons = polygons;
 
   setStatus(`已渲染 ${points.length} 个小区`, 'ok');
 }
@@ -388,7 +407,7 @@ async function switchMode(mode) {
   const data = await loadData(mode);
 
   if (!data) {
-    clearMarkers();
+    clearPolygons();
     document.getElementById('no-data').style.display = 'block';
     setStatus('无数据', 'error');
     return;
@@ -418,7 +437,7 @@ function toggleLayer() {
   if (layerOn) {
     switchMode(currentMode);
   } else {
-    clearMarkers();
+    clearPolygons();
     setStatus('图层已关闭');
   }
 }
@@ -446,7 +465,7 @@ function init() {
     center: [121.4737, 31.2304],
     zoom: 11,
     mapStyle: 'amap://styles/dark',
-    features: ['bg', 'road', 'building', 'point'],
+    features: ['bg', 'road', 'building'],
   });
 
   // 先加载数据，从数据 _meta 读目标坐标；localStorage 作为 fallback
@@ -487,7 +506,7 @@ function init() {
   // 图层开关
   document.getElementById('layer-toggle').addEventListener('click', toggleLayer);
 
-  // 地图缩放后重新渲染（CircleMarker radius 需更新）
+  // 地图缩放后重新渲染（Voronoi extent 需更新）
   map.on('zoomend', () => {
     if (layerOn && dataCache[currentMode]) {
       renderIsochrone(dataCache[currentMode]);
@@ -495,10 +514,21 @@ function init() {
   });
 }
 
+// d3-delaunay 挂载检查
+function waitForD3(cb) {
+  if (window.d3 && window.d3.Delaunay) { cb(); return; }
+  let t = 0;
+  const id = setInterval(() => {
+    t += 100;
+    if (window.d3 && window.d3.Delaunay) { clearInterval(id); cb(); }
+    else if (t > 5000) { clearInterval(id); setStatus('d3-delaunay 加载失败', 'error'); }
+  }, 100);
+}
+
 if (window.AMap) {
-  init();
+  waitForD3(init);
 } else {
-  window.onload = init;
+  window.onload = () => waitForD3(init);
 }
 </script>
 </body>
