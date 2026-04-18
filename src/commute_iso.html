@@ -468,27 +468,35 @@ function init() {
     features: ['bg', 'road', 'building'],
   });
 
-  // 读取目标地点
-  const target = getTargetFromStorage();
-  if (target) {
-    placeTargetMarker(target);
-    map.setCenter([target.lng, target.lat]);
-    // 加载初始数据
-    setStatus('加载数据…', 'loading');
-    loadData(currentMode).then(data => {
-      if (data) {
-        document.getElementById('no-data').style.display = 'none';
-        renderIsochrone(data);
-      } else {
-        document.getElementById('no-data').style.display = 'block';
-        setStatus('无预计算数据', 'error');
+  // 先加载数据，从数据 _meta 读目标坐标；localStorage 作为 fallback
+  setStatus('加载数据…', 'loading');
+  loadData(currentMode).then(data => {
+    if (data) {
+      document.getElementById('no-data').style.display = 'none';
+      // 优先用数据文件里的 target
+      const metaTarget = data._meta?.target;
+      const storageTarget = getTargetFromStorage();
+      const target = metaTarget
+        ? { lng: metaTarget.lng, lat: metaTarget.lat, name: storageTarget?.name || '新漕河泾商务中心B座' }
+        : storageTarget;
+      if (target) {
+        placeTargetMarker(target);
+        map.setCenter([target.lng, target.lat]);
       }
-    });
-  } else {
-    document.getElementById('target-name').textContent = '未设置（请在主页面职业面设置）';
-    setStatus('未设置工作地点', 'error');
-    document.getElementById('no-data').style.display = 'block';
-  }
+      renderIsochrone(data);
+    } else {
+      // 数据不存在，尝试 localStorage
+      const target = getTargetFromStorage();
+      if (target) {
+        placeTargetMarker(target);
+        map.setCenter([target.lng, target.lat]);
+      } else {
+        document.getElementById('target-name').textContent = '未设置（请在主页面职业面设置）';
+      }
+      document.getElementById('no-data').style.display = 'block';
+      setStatus('无预计算数据', 'error');
+    }
+  });
 
   // 模式切换
   document.querySelectorAll('.mode-tab').forEach(btn => {
