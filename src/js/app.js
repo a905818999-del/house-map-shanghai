@@ -22,7 +22,8 @@ const App = (() => {
   let ringsVisible = true;
   let allData = [];
   let filteredData = [];
-  let colorMode = 'quadrant'; // 'quadrant' | 'price' | 'year'
+  let colorMode = 'quadrant'; // 'quadrant' | 'price'
+  let ageOverlay = false;     // 楼龄叠加层开关（独立于 colorMode）
   let valleyMode = false;     // 洼地模式：只显示绿色
   let selectedDistricts = new Set();
   let dataLoadedManually = false;
@@ -178,6 +179,7 @@ const App = (() => {
       resizeEnable: true,
     });
     setTimeout(() => map.resize(), 300);
+    window.__map = map;
 
     infoWindow = new AMap.InfoWindow({
       anchor: 'bottom-center',
@@ -219,20 +221,24 @@ const App = (() => {
     const RING_COLOR = '#E74C3C';
     Object.entries(json.rings).forEach(([key, ring]) => {
       const s = RING_STYLE[key] || { weight: 2, opacity: 0.8, style: 'solid', dash: null };
-      const pl = new AMap.Polyline({
-        path: ring.path,
-        strokeColor: RING_COLOR,
-        strokeWeight: s.weight,
-        strokeOpacity: s.opacity,
-        strokeStyle: s.style,
-        lineJoin: 'round',
-        zIndex: 5,
+      const segments = (ring.segments || [ring.path]).filter(s => s.length >= 20);
+      segments.forEach(seg => {
+        const pl = new AMap.Polyline({
+          path: seg,
+          strokeColor: RING_COLOR,
+          strokeWeight: s.weight,
+          strokeOpacity: s.opacity,
+          strokeStyle: s.style,
+          lineJoin: 'round',
+          zIndex: 5,
+        });
+        pl.setMap(map);
+        ringPolylines.push(pl);
       });
-      pl.setMap(map);
-      ringPolylines.push(pl);
 
       // 添加标签
-      const mid = ring.path[Math.floor(ring.path.length / 4)];
+      const longestSeg = segments.reduce((a, b) => a.length > b.length ? a : b);
+      const mid = longestSeg[Math.floor(longestSeg.length / 4)];
       const label = new AMap.Text({
         text: ring.name,
         position: new AMap.LngLat(mid[0], mid[1]),
@@ -284,7 +290,7 @@ const App = (() => {
           boundaries = json.boundaries || {};
           console.log(`[boundaries] 加载 ${Object.keys(boundaries).length} 条边界`);
           // 如果当前是 year 模式，立即重渲
-          if (colorMode === 'year' && map) renderByLOD();
+          if (ageOverlay && map) renderByLOD();
           return;
         }
       } catch (_) {}
@@ -417,22 +423,14 @@ const App = (() => {
     if (!map) return;
     const zoom = map.getZoom();
 
-    // year 模式：多边形替代 marker
-    if (colorMode === 'year') {
-      clearMarkers();
-      if (zoom < ZOOM_HEATMAP_ONLY) {
-        clearAgePolygons();
-        renderHeatmapAuto();
-        setStatus(`🗺 热力图模式（共 ${filteredData.length} 个小区）`);
-        return;
-      }
-      if (heatmapOn) renderHeatmap();
-      renderAgeLayer(zoom);
-      return;
+    // 楼龄叠加层（独立于 marker 模式）
+    if (ageOverlay) {
+      if (zoom >= ZOOM_HEATMAP_ONLY) renderAgeLayer(zoom);
+      else clearAgePolygons();
     }
 
-    // 其他模式：清除多边形，照旧走 marker 路径
-    clearAgePolygons();
+    // 其他模式：照旧走 marker 路径（ageOverlay 开时多边形保留）
+    if (!ageOverlay) clearAgePolygons();
 
     if (zoom < ZOOM_HEATMAP_ONLY) {
       clearMarkers();
@@ -495,8 +493,7 @@ const App = (() => {
   const AGE_POLY_CAPS = { sparse: 120, detail: 300 };
 
   function renderAgeLayer(zoom) {
-    clearMarkers();
-    clearAgePolygons();
+    clearAgePolygons();   // 不清 markers，只刷新多边形
 
     if (!boundaries || Object.keys(boundaries).length === 0) {
       setStatus('⚠️ 边界数据未加载，请稍候…');
@@ -518,6 +515,7 @@ const App = (() => {
     toRender.forEach(c => {
       const boundary = boundaries[c.id];
       if (!boundary?.rings?.length) return;
+      if (!c.build_year || 2026 - c.build_year > 65) return;
 
       const color = getAgeColor(c.build_year);
       const path = boundary.rings[0].map(([lng, lat]) => new AMap.LngLat(lng, lat));
@@ -526,11 +524,11 @@ const App = (() => {
       const poly = new AMap.Polygon({
         path,
         fillColor: color,
-        fillOpacity: 0.55,
+        fillOpacity: 0.45,
         strokeColor: color,
         strokeWeight: 1,
-        strokeOpacity: 0.7,
-        zIndex: 8,
+        strokeOpacity: 0.5,
+        zIndex: 3,
         extData: c,
       });
       poly.on('click', () => {
@@ -620,10 +618,10 @@ const App = (() => {
             `</div>` +
             commuteRow +
           `</div>` +
-          `<div class="mk-tip" style="border-top-color:#fff"></div>`;
+          `<div class="mk-tip" style="border-top-color:${qConf.color}"></div>`;
       }
 
-      const m = new AMap.Marker({
+const m = new AMap.Marker({
         position: [c.lng, c.lat],
         content: el,
         anchor: 'bottom-center',
@@ -685,13 +683,9 @@ const App = (() => {
           <span class="info-badge" style="background:${qConf.bg};color:${qConf.color}">${qConf.emoji} ${qConf.label}</span>
         </div>
         <div class="info-row">
-          <span class="info-key">💰 挂牌均价</span>
-          <span class="info-val" style="color:${getPriceColor(c.ref_price)}">${c.ref_price != null ? fmtPrice(c.ref_price)+' 元/㎡' : '暂无数据'}</span>
+          <span class="info-key">💰 参考均价</span>
+          <span class="info-val" style="color:${getPriceColor(c.ref_price)};font-weight:600">${c.ref_price != null ? fmtPrice(c.ref_price)+' 元/㎡<span style=\'color:#888;font-size:11px;font-weight:400\'> 链家近期成交</span>' : '暂无数据'}</span>
         </div>
-        ${c.ref_price != null ? `<div class="info-row">
-          <span class="info-key">✅ 参考均价</span>
-          <span class="info-val" style="color:${getPriceColor(c.ref_price)};font-weight:600">${fmtPrice(c.ref_price)} 元/㎡<span style="color:#888;font-size:11px;font-weight:400"> 链家近期成交</span></span>
-        </div>` : ''}
         <div class="info-row">
           <span class="info-key">📊 vs ${c.district}均价</span>
           <span class="info-val" style="color:${dev==null?'#aaa':dev<=0?'#27AE60':'#E74C3C'}">${devTxt}（${avg ? fmtPrice(Math.round(avg))+'元' : '—'}）</span>
@@ -715,13 +709,20 @@ const App = (() => {
   // ── 颜色模式切换 ───────────────────────────────────────────────────────────
   function setMode(mode) {
     colorMode = mode;
-    ['quadrant','price','year'].forEach(m => {
+    ['quadrant','price'].forEach(m => {
       document.getElementById(`mode-${m}`)?.classList.toggle('active', m === mode);
     });
-    if (mode !== 'year') clearAgePolygons();
     renderByLOD();
     updateLegend();
     updateResultsList();
+  }
+
+  function toggleAgeOverlay() {
+    ageOverlay = !ageOverlay;
+    document.getElementById('mode-year')?.classList.toggle('active', ageOverlay);
+    if (!ageOverlay) clearAgePolygons();
+    else renderByLOD();
+    updateLegend();
   }
 
   // ── 洼地榜单 ───────────────────────────────────────────────────────────────
@@ -1164,7 +1165,7 @@ const App = (() => {
           `<div class="legend-step"><div class="legend-dot" style="background:${v.color}"></div><span>${v.label}</span></div>`
         ).join('')
       }<div class="legend-step"><div class="legend-dot" style="background:#BDBDBD"></div><span>无数据</span></div></div>`;
-    } else if (colorMode === 'year') {
+    } else if (ageOverlay) {
       el.innerHTML = `<div class="legend-steps">${
         AGE_TIERS.map(t =>
           `<div class="legend-step"><div class="legend-dot" style="background:${t.color};border-radius:2px"></div><span>${t.label}</span></div>`
@@ -1228,7 +1229,7 @@ const App = (() => {
   });
 
   return {
-    initMap, setMode, switchTab,
+    initMap, setMode, toggleAgeOverlay, switchTab,
     applyFilters, onPriceRangeChange, onYearRangeChange, resetFilters,
     openFilePicker, flyTo, exportCsv,
     toggleHeatmap, toggleRings, toggleValleyMode,
