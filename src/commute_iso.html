@@ -230,28 +230,55 @@
   </div>
 
   <div id="legend">
-    <h4>通勤时间</h4>
-    <div class="legend-item"><div class="legend-swatch" style="background:#1a9641"></div> ≤ 15 分钟</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#74c476"></div> 15 – 25 分钟</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#c7e9ad"></div> 25 – 35 分钟</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#f7e56a"></div> 35 – 45 分钟</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#f4854f"></div> 45 – 55 分钟</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#d7191c"></div> 55+ 分钟</div>
+    <h4>通勤时间（分钟）</h4>
+    <div style="width:140px;height:12px;border-radius:4px;margin-bottom:6px;background:linear-gradient(to right,rgb(26,150,65),rgb(116,196,118),rgb(199,233,173),rgb(247,229,106),rgb(244,133,79),rgb(215,25,28));opacity:0.85"></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e">
+      <span>0</span><span>15</span><span>25</span><span>35</span><span>45</span><span>55+</span>
+    </div>
   </div>
 </div>
 
 <script>
-// ── 颜色配置 ─────────────────────────────────────────────────────────────────
-const TIER_COLORS = [
-  '#1a9641', // 0: ≤15
-  '#74c476', // 1: 15-25
-  '#c7e9ad', // 2: 25-35
-  '#f7e56a', // 3: 35-45
-  '#f4854f', // 4: 45-55
-  '#d7191c', // 5: 55+
+// ── 颜色配置（5分钟颗粒度，连续色阶）────────────────────────────────────────
+// 色阶锚点：[minutes, r, g, b]
+const COLOR_STOPS = [
+  [0,   26, 150, 65],   // 深绿
+  [15,  116, 196, 118], // 绿
+  [25,  199, 233, 173], // 浅绿
+  [35,  247, 229, 106], // 黄
+  [45,  244, 133, 79],  // 橙
+  [55,  215, 25,  28],  // 红
+  [90,  130, 0,   10],  // 深红（超长）
 ];
 
+function minutesToColor(minutes) {
+  if (minutes == null) return '#888888';
+  const m = Math.min(minutes, 90);
+  // 找到区间
+  let lo = COLOR_STOPS[0], hi = COLOR_STOPS[COLOR_STOPS.length - 1];
+  for (let i = 0; i < COLOR_STOPS.length - 1; i++) {
+    if (m >= COLOR_STOPS[i][0] && m <= COLOR_STOPS[i+1][0]) {
+      lo = COLOR_STOPS[i]; hi = COLOR_STOPS[i+1]; break;
+    }
+  }
+  const t = lo[0] === hi[0] ? 1 : (m - lo[0]) / (hi[0] - lo[0]);
+  const r = Math.round(lo[1] + (hi[1] - lo[1]) * t);
+  const g = Math.round(lo[2] + (hi[2] - lo[2]) * t);
+  const b = Math.round(lo[3] + (hi[3] - lo[3]) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+// 旧 tier 兼容（用于点击 label）
 const TIER_LABELS = ['≤15 min', '15–25 min', '25–35 min', '35–45 min', '45–55 min', '55+ min'];
+function minutesToTierLabel(m) {
+  if (m == null) return '未知';
+  if (m <= 15) return TIER_LABELS[0];
+  if (m <= 25) return TIER_LABELS[1];
+  if (m <= 35) return TIER_LABELS[2];
+  if (m <= 45) return TIER_LABELS[3];
+  if (m <= 55) return TIER_LABELS[4];
+  return TIER_LABELS[5];
+}
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
 let map = null;
@@ -326,15 +353,13 @@ function renderIsochrone(data) {
   clearPolygons();
   if (!data || !data.points || data.points.length === 0) return;
 
-  const points = data.points.filter(p => p.tier !== null && p.lat && p.lng);
+  const points = data.points.filter(p => p.minutes != null && p.lat && p.lng);
   if (points.length === 0) return;
 
   setStatus(`渲染 ${points.length} 个点...`, 'loading');
 
-  // 坐标系：高德地图用 [lng, lat]，Delaunay 用 [x, y]=[lng,lat]
   const coords = points.map(p => [p.lng, p.lat]);
 
-  // 地图边界（稍微扩展一点）
   const bounds = map.getBounds();
   const sw = bounds.getSouthWest();
   const ne = bounds.getNorthEast();
@@ -349,35 +374,46 @@ function renderIsochrone(data) {
   const delaunay = d3.Delaunay.from(coords);
   const voronoi = delaunay.voronoi(extent);
 
+  // 预计算每个点的邻居分钟数（用于边缘渐变判断）
+  const neighborMinutes = points.map((_, i) => {
+    const neighbors = [...delaunay.neighbors(i)];
+    return neighbors.map(j => points[j].minutes);
+  });
+
   const polygons = [];
 
   for (let i = 0; i < points.length; i++) {
     const cell = voronoi.cellPolygon(i);
     if (!cell) continue;
 
-    const tier = points[i].tier;
-    const color = TIER_COLORS[tier];
+    const p = points[i];
+    const color = minutesToColor(p.minutes);
 
-    // cell 是 [[lng,lat], ...] 格式
+    // 计算与邻居的最大分钟差，差距大则边缘感更强，opacity 稍低做柔化
+    const nbMins = neighborMinutes[i];
+    const maxDiff = nbMins.length
+      ? Math.max(...nbMins.map(m => Math.abs(m - p.minutes)))
+      : 0;
+    // 差距 ≤5min → opacity 0.7（同色区域饱满）；差距 ≥20min → opacity 0.38（跨色边缘柔化）
+    const fillOpacity = Math.max(0.38, 0.7 - (Math.min(maxDiff, 20) / 20) * 0.32);
+
     const path = cell.map(([lng, lat]) => [lng, lat]);
 
     const poly = new AMap.Polygon({
       path,
       fillColor: color,
-      fillOpacity: 0.55,
+      fillOpacity,
       strokeColor: color,
-      strokeOpacity: 0.2,
-      strokeWeight: 0.5,
+      strokeOpacity: 0.15,
+      strokeWeight: 0.3,
     });
 
-    // 点击显示信息
-    const p = points[i];
     poly.on('click', () => {
       const info = new AMap.InfoWindow({
         content: `<div style="padding:8px;font-size:13px;line-height:1.8">
           <b>${p.name}</b><br>
           通勤时间: <b>${p.minutes} 分钟</b><br>
-          档位: ${TIER_LABELS[p.tier]}
+          档位: ${minutesToTierLabel(p.minutes)}
         </div>`,
         offset: new AMap.Pixel(0, -10),
       });
