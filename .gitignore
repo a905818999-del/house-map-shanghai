@@ -1,14 +1,48 @@
 # 原始数据（体积大，不入库）
 data/raw/*.csv
 data/raw/*.xlsx
+data/raw/*.json
 
 # 本地配置（含 API Key，不入库）
 src/js/config.js
 
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log*
+
 # 系统文件
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+
+# 编辑器
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# 调试产物
+midscene_run/
+.codepilot-uploads/
+scripts/debug_*.mjs
+scripts/test_*.mjs
+
+# 爬取日志（运行时产物，不入库）
+data/raw/crawl_log.txt
+data/raw/*.log
+
+# 大型处理数据（boundaries 约 20MB，不入库）
+data/processed/boundaries.json
+
+# 外部参考数据（大文件/调试产物，不入库）
+data/external/dataset.csv
+data/external/screenshot.png
+data/external/test_page*.html

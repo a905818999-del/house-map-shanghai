@@ -305,8 +305,6 @@ html, body {
   width: max-content;
   line-height: 1;
   cursor: pointer;
-  /* 指针尖端在底部居中 */
-  transform: translate(-50%, -100%);
 }
 
 /* 紧凑胶囊（zoom < 12）*/

@@ -22,11 +22,20 @@ const App = (() => {
   let ringsVisible = true;
   let allData = [];
   let filteredData = [];
-  let colorMode = 'quadrant'; // 'quadrant' | 'price' | 'year'
+  let colorMode = 'quadrant'; // 'quadrant' | 'price'
+  let ageOverlay = false;     // 楼龄叠加层开关（独立于 colorMode）
   let valleyMode = false;     // 洼地模式：只显示绿色
   let selectedDistricts = new Set();
   let dataLoadedManually = false;
   let lodTimer = null;
+
+  // 楼龄图层
+  let boundaries = null;       // 从 boundaries.json 加载的 {id: {rings, source}}
+  let agePolygons = [];        // AMap.Polygon[] 当前渲染的楼龄色块
+  const BOUNDARIES_PATHS = [
+    '../data/processed/boundaries.json',
+    './data/processed/boundaries.json',
+  ];
 
   // 通勤状态
   let commuteTargets = [];    // [{lng,lat,name}] 最多2个
@@ -34,6 +43,7 @@ const App = (() => {
   let commuteMode = 'driving'; // 'driving' | 'transit'
   let drivingService = null;
   let transitService = null;
+  let isochronePolygons = []; // 等时圈多边形
 
   // 板块均价（按行政区计算）
   let districtAvg = {};
@@ -73,6 +83,25 @@ const App = (() => {
     { max: Infinity, color: '#8E44AD' },
   ];
 
+  // 楼龄 8 档颜色（绿→黄→橙→红，越老越红）
+  // 档位：<1990, 1990-94, 1995-99, 2000-04, 2005-09, 2010-14, 2015-19, 2020+
+  const AGE_TIERS = [
+    { maxYear: 1989, color: '#8B0000', label: '90年前' },   // 深红
+    { maxYear: 1994, color: '#C0392B', label: '90-94' },    // 红
+    { maxYear: 1999, color: '#E67E22', label: '95-99' },    // 橙
+    { maxYear: 2004, color: '#F1C40F', label: '2000-04' },  // 黄
+    { maxYear: 2009, color: '#A8D08D', label: '05-09' },    // 浅绿
+    { maxYear: 2014, color: '#52BE80', label: '10-14' },    // 中绿
+    { maxYear: 2019, color: '#1E8449', label: '15-19' },    // 深绿
+    { maxYear: Infinity, color: '#0B5394', label: '2020+' }, // 蓝（最新）
+  ];
+
+  function getAgeColor(buildYear) {
+    if (!buildYear) return '#BDBDBD';
+    for (const t of AGE_TIERS) if (buildYear <= t.maxYear) return t.color;
+    return AGE_TIERS.at(-1).color;
+  }
+
   function getPriceColor(p) {
     if (p == null) return '#BDBDBD';
     for (const t of PRICE_TIERS) if (p < t.max) return t.color;
@@ -81,8 +110,8 @@ const App = (() => {
 
   function getQuadrant(c) {
     const avg = districtAvg[c.district];
-    if (!avg || !c.avg_price) return 'unknown';
-    const ratio = c.avg_price / avg;
+    if (!avg || !c.ref_price) return 'unknown';
+    const ratio = c.ref_price / avg;
     const isNew  = c.build_year >= 2009;   // ≤15年
     const isOld  = !c.build_year || c.build_year < 1999; // >25年
     if (ratio < 0.90 && isNew)  return 'valley';
@@ -94,13 +123,13 @@ const App = (() => {
 
   function getDeviation(c) {
     const avg = districtAvg[c.district];
-    if (!avg || !c.avg_price) return null;
-    return Math.round((c.avg_price / avg - 1) * 100);
+    if (!avg || !c.ref_price) return null;
+    return Math.round((c.ref_price / avg - 1) * 100);
   }
 
   function getMarkerColor(c) {
     if (colorMode === 'quadrant') return Q[getQuadrant(c)].color;
-    if (colorMode === 'price') return getPriceColor(c.avg_price);
+    if (colorMode === 'price') return getPriceColor(c.ref_price);
     return '#4A90D9'; // year mode 用楼龄bar替代，marker颜色统一蓝
   }
 
@@ -108,9 +137,9 @@ const App = (() => {
   function computeDistrictAvg(data) {
     const acc = {};
     data.forEach(c => {
-      if (!c.avg_price || !c.district) return;
+      if (!c.ref_price || !c.district) return;
       if (!acc[c.district]) acc[c.district] = { sum: 0, n: 0 };
-      acc[c.district].sum += c.avg_price;
+      acc[c.district].sum += c.ref_price;
       acc[c.district].n++;
     });
     districtAvg = {};
@@ -150,6 +179,7 @@ const App = (() => {
       resizeEnable: true,
     });
     setTimeout(() => map.resize(), 300);
+    window.__map = map;
 
     infoWindow = new AMap.InfoWindow({
       anchor: 'bottom-center',
@@ -182,34 +212,38 @@ const App = (() => {
     }
     if (!json) return;
 
-    // 三条环线（内环最粗实线，中环稍细实线，外环细虚线）
+    // 三条环线，统一红色实线，外环稍细
     const RING_STYLE = {
-      inner:  { weight: 3.5, opacity: 0.9, style: 'solid',  dash: null },
-      middle: { weight: 2.5, opacity: 0.8, style: 'solid',  dash: null },
-      outer:  { weight: 1.5, opacity: 0.4, style: 'dashed', dash: [6, 6] },
+      inner:  { weight: 3.5, opacity: 0.9, style: 'solid', dash: null },
+      middle: { weight: 2.5, opacity: 0.85, style: 'solid', dash: null },
+      outer:  { weight: 2.0, opacity: 0.8, style: 'solid', dash: null },
     };
+    const RING_COLOR = '#E74C3C';
     Object.entries(json.rings).forEach(([key, ring]) => {
-      const s = RING_STYLE[key] || { weight: 2, opacity: 0.7, style: 'dashed', dash: ring.dash };
-      const pl = new AMap.Polyline({
-        path: ring.path,
-        strokeColor: ring.color,
-        strokeWeight: s.weight,
-        strokeOpacity: s.opacity,
-        strokeStyle: s.style,
-        ...(s.dash ? { strokeDasharray: s.dash } : {}),
-        lineJoin: 'round',
-        zIndex: 5,
+      const s = RING_STYLE[key] || { weight: 2, opacity: 0.8, style: 'solid', dash: null };
+      const segments = (ring.segments || [ring.path]).filter(s => s.length >= 20);
+      segments.forEach(seg => {
+        const pl = new AMap.Polyline({
+          path: seg,
+          strokeColor: RING_COLOR,
+          strokeWeight: s.weight,
+          strokeOpacity: s.opacity,
+          strokeStyle: s.style,
+          lineJoin: 'round',
+          zIndex: 5,
+        });
+        pl.setMap(map);
+        ringPolylines.push(pl);
       });
-      pl.setMap(map);
-      ringPolylines.push(pl);
 
       // 添加标签
-      const mid = ring.path[Math.floor(ring.path.length / 4)];
+      const longestSeg = segments.reduce((a, b) => a.length > b.length ? a : b);
+      const mid = longestSeg[Math.floor(longestSeg.length / 4)];
       const label = new AMap.Text({
         text: ring.name,
         position: new AMap.LngLat(mid[0], mid[1]),
         style: {
-          'font-size': '10px', 'color': ring.color,
+          'font-size': '10px', 'color': RING_COLOR,
           'background': 'transparent', 'border': 'none',
           'font-weight': '600', 'pointer-events': 'none',
         },
@@ -218,41 +252,11 @@ const App = (() => {
       label.setMap(map);
       ringPolylines.push(label);
     });
-
-    // CAZ 多边形
-    cazPolygon = new AMap.Polygon({
-      path: json.caz.path,
-      fillColor: '#3498DB',
-      fillOpacity: 0.06,
-      strokeColor: '#3498DB',
-      strokeWeight: 1.5,
-      strokeOpacity: 0.4,
-      strokeStyle: 'dashed',
-      zIndex: 4,
-    });
-    cazPolygon.setMap(map);
-
-    // CAZ 标签
-    const cazLabel = new AMap.Text({
-      text: 'CAZ 核心活动区',
-      position: new AMap.LngLat(121.478, 31.233),
-      style: {
-        'font-size': '10px', 'color': '#2980B9',
-        'background': 'rgba(52,152,219,0.08)',
-        'border': '1px solid rgba(52,152,219,0.3)',
-        'padding': '2px 6px', 'border-radius': '4px',
-        'font-weight': '600', 'pointer-events': 'none',
-      },
-      zIndex: 5,
-    });
-    cazLabel.setMap(map);
-    ringPolylines.push(cazLabel);
   }
 
   function toggleRings() {
     ringsVisible = !ringsVisible;
     ringPolylines.forEach(p => ringsVisible ? p.show() : p.hide());
-    cazPolygon && (ringsVisible ? cazPolygon.show() : cazPolygon.hide());
     document.getElementById('btn-rings').classList.toggle('active', ringsVisible);
   }
 
@@ -273,6 +277,26 @@ const App = (() => {
     computeDistrictAvg(allData);
     if (map) { buildDistrictFilter(); applyFilters(); hideLoading(); }
     else { hideLoading(); setStatus(`数据已读取 ${allData.length} 个小区，请输入 API Key 加载地图`); }
+    // 延迟加载边界数据（非阻塞）
+    if (!boundaries) loadBoundaries();
+  }
+
+  async function loadBoundaries() {
+    for (const p of BOUNDARIES_PATHS) {
+      try {
+        const r = await fetch(p);
+        if (r.ok) {
+          const json = await r.json();
+          boundaries = json.boundaries || {};
+          console.log(`[boundaries] 加载 ${Object.keys(boundaries).length} 条边界`);
+          // 如果当前是 year 模式，立即重渲
+          if (ageOverlay && map) renderByLOD();
+          return;
+        }
+      } catch (_) {}
+    }
+    console.warn('[boundaries] 未找到 boundaries.json，楼龄模式将跳过多边形');
+    boundaries = {};
   }
 
   // ── 文件上传 ───────────────────────────────────────────────────────────────
@@ -339,7 +363,7 @@ const App = (() => {
     filteredData = allData.filter(c => {
       if (c.district && !selectedDistricts.has(c.district)) return false;
       if (search && !c.name.toLowerCase().includes(search)) return false;
-      if (c.avg_price != null && (c.avg_price < priceMin || c.avg_price > priceMax)) return false;
+      if (c.ref_price != null && (c.ref_price < priceMin || c.ref_price > priceMax)) return false;
       if (c.build_year != null && (c.build_year < yearMin || c.build_year > yearMax)) return false;
       if (valleyMode && getQuadrant(c) !== 'valley') return false;
       return true;
@@ -399,6 +423,15 @@ const App = (() => {
     if (!map) return;
     const zoom = map.getZoom();
 
+    // 楼龄叠加层（独立于 marker 模式）
+    if (ageOverlay) {
+      if (zoom >= ZOOM_HEATMAP_ONLY) renderAgeLayer(zoom);
+      else clearAgePolygons();
+    }
+
+    // 其他模式：照旧走 marker 路径（ageOverlay 开时多边形保留）
+    if (!ageOverlay) clearAgePolygons();
+
     if (zoom < ZOOM_HEATMAP_ONLY) {
       clearMarkers();
       renderHeatmapAuto();
@@ -439,7 +472,7 @@ const App = (() => {
       const row = Math.floor((c.lat - sw.getLat()) / latStep);
       const col = Math.floor((c.lng - sw.getLng()) / lngStep);
       const key = `${row},${col}`;
-      if (!grid.has(key) || (c.avg_price ?? 0) > (grid.get(key).avg_price ?? 0)) {
+      if (!grid.has(key) || (c.ref_price ?? 0) > (grid.get(key).ref_price ?? 0)) {
         grid.set(key, c);
       }
     }
@@ -449,6 +482,69 @@ const App = (() => {
   function clearMarkers() {
     if (markers.length) { map.remove(markers); markers = []; }
     infoWindow?.close();
+  }
+
+  // ── 楼龄多边形图层 ──────────────────────────────────────────────────────────
+  function clearAgePolygons() {
+    if (agePolygons.length) { map.remove(agePolygons); agePolygons = []; }
+  }
+
+  // LOD cap for year mode: limit polygons in viewport to avoid browser jank
+  const AGE_POLY_CAPS = { sparse: 120, detail: 300 };
+
+  function renderAgeLayer(zoom) {
+    clearAgePolygons();   // 不清 markers，只刷新多边形
+
+    if (!boundaries || Object.keys(boundaries).length === 0) {
+      setStatus('⚠️ 边界数据未加载，请稍候…');
+      return;
+    }
+
+    const bounds = map.getBounds();
+    const viewport = filteredData.filter(c => bounds.contains(new AMap.LngLat(c.lng, c.lat)));
+
+    let toRender;
+    const cap = zoom < 13 ? AGE_POLY_CAPS.sparse : AGE_POLY_CAPS.detail;
+    if (viewport.length > cap) {
+      toRender = gridSample(viewport, bounds, cap);
+    } else {
+      toRender = viewport;
+    }
+
+    const polys = [];
+    toRender.forEach(c => {
+      const boundary = boundaries[c.id];
+      if (!boundary?.rings?.length) return;
+      if (!c.build_year || 2026 - c.build_year > 65) return;
+
+      const color = getAgeColor(c.build_year);
+      const path = boundary.rings[0].map(([lng, lat]) => new AMap.LngLat(lng, lat));
+      if (path.length < 3) return;
+
+      const poly = new AMap.Polygon({
+        path,
+        fillColor: color,
+        fillOpacity: 0.45,
+        strokeColor: color,
+        strokeWeight: 1,
+        strokeOpacity: 0.5,
+        zIndex: 3,
+        extData: c,
+      });
+      poly.on('click', () => {
+        const fakeMarker = { getPosition: () => new AMap.LngLat(c.lng, c.lat), getExtData: () => c };
+        openInfoWindow(fakeMarker, c);
+      });
+      polys.push(poly);
+    });
+
+    if (polys.length) {
+      map.add(polys);
+      agePolygons = polys;
+    }
+
+    const missing = toRender.length - polys.length;
+    setStatus(`🏗 楼龄图层：${polys.length} 个小区${missing > 0 ? `（${missing}个无边界数据）` : ''}（视口 ${viewport.length}，共 ${filteredData.length}）`);
   }
 
   // ── 楼龄进度条 ─────────────────────────────────────────────────────────────
@@ -473,7 +569,7 @@ const App = (() => {
       const quad  = getQuadrant(c);
       const qConf = Q[quad];
       const color = getMarkerColor(c);
-      const price = c.avg_price != null ? `${(c.avg_price/10000).toFixed(1)}万` : '—';
+      const price = c.ref_price != null ? `${(c.ref_price/10000).toFixed(1)}万` : '—';
       const dev   = getDeviation(c);
       const devTxt = dev != null ? (dev >= 0 ? `+${dev}%` : `${dev}%`) : '';
       const devColor = dev == null ? '#aaa' : dev <= -10 ? '#27AE60' : dev >= 10 ? '#E74C3C' : '#7F8C8D';
@@ -522,10 +618,10 @@ const App = (() => {
             `</div>` +
             commuteRow +
           `</div>` +
-          `<div class="mk-tip" style="border-top-color:#fff"></div>`;
+          `<div class="mk-tip" style="border-top-color:${qConf.color}"></div>`;
       }
 
-      const m = new AMap.Marker({
+const m = new AMap.Marker({
         position: [c.lng, c.lat],
         content: el,
         anchor: 'bottom-center',
@@ -543,8 +639,8 @@ const App = (() => {
   // ── 热力图 ────────────────────────────────────────────────────────────────
   function renderHeatmap() {
     if (!map || typeof AMap.HeatMap === 'undefined') return;
-    const points = filteredData.filter(c => c.avg_price != null).map(c => ({
-      lng: c.lng, lat: c.lat, count: c.avg_price / 10000,
+    const points = filteredData.filter(c => c.ref_price != null).map(c => ({
+      lng: c.lng, lat: c.lat, count: c.ref_price / 10000,
     }));
     const maxVal = points.reduce((m, p) => Math.max(m, p.count), 1);
     if (!heatmapLayer) {
@@ -587,8 +683,8 @@ const App = (() => {
           <span class="info-badge" style="background:${qConf.bg};color:${qConf.color}">${qConf.emoji} ${qConf.label}</span>
         </div>
         <div class="info-row">
-          <span class="info-key">💰 均价</span>
-          <span class="info-val" style="color:${getPriceColor(c.avg_price)}">${c.avg_price != null ? fmtPrice(c.avg_price)+' 元/㎡' : '暂无数据'}</span>
+          <span class="info-key">💰 参考均价</span>
+          <span class="info-val" style="color:${getPriceColor(c.ref_price)};font-weight:600">${c.ref_price != null ? fmtPrice(c.ref_price)+' 元/㎡<span style=\'color:#888;font-size:11px;font-weight:400\'> 链家近期成交</span>' : '暂无数据'}</span>
         </div>
         <div class="info-row">
           <span class="info-key">📊 vs ${c.district}均价</span>
@@ -613,12 +709,20 @@ const App = (() => {
   // ── 颜色模式切换 ───────────────────────────────────────────────────────────
   function setMode(mode) {
     colorMode = mode;
-    ['quadrant','price','year'].forEach(m => {
+    ['quadrant','price'].forEach(m => {
       document.getElementById(`mode-${m}`)?.classList.toggle('active', m === mode);
     });
     renderByLOD();
     updateLegend();
     updateResultsList();
+  }
+
+  function toggleAgeOverlay() {
+    ageOverlay = !ageOverlay;
+    document.getElementById('mode-year')?.classList.toggle('active', ageOverlay);
+    if (!ageOverlay) clearAgePolygons();
+    else renderByLOD();
+    updateLegend();
   }
 
   // ── 洼地榜单 ───────────────────────────────────────────────────────────────
@@ -651,7 +755,7 @@ const App = (() => {
         <div class="result-info">
           <div class="result-name">${escHtml(c.name)}</div>
           <div class="result-meta">
-            <b style="color:#27AE60">${(c.avg_price/10000).toFixed(1)}万</b>
+            <b style="color:#27AE60">${(c.ref_price/10000).toFixed(1)}万</b>
             <span style="color:#27AE60;font-size:10px"> ${devTxt}</span>
             · ${c.build_year ?? '—'}年
             · ${c.district ?? ''}
@@ -665,7 +769,7 @@ const App = (() => {
   // ── 结果列表 ──────────────────────────────────────────────────────────────
   const LIST_MAX = 30;
   function updateResultsList() {
-    const sorted = [...filteredData].sort((a, b) => (b.avg_price ?? 0) - (a.avg_price ?? 0));
+    const sorted = [...filteredData].sort((a, b) => (b.ref_price ?? 0) - (a.ref_price ?? 0));
     document.getElementById('list-count').textContent =
       `${filteredData.length} 个${filteredData.length > LIST_MAX ? `，显示前${LIST_MAX}` : ''}`;
     const list = document.getElementById('results-list');
@@ -680,7 +784,7 @@ const App = (() => {
         <div class="result-info">
           <div class="result-name">${escHtml(c.name)}</div>
           <div class="result-meta">
-            <b style="color:${getPriceColor(c.avg_price)}">${c.avg_price != null ? (c.avg_price/10000).toFixed(1)+'万' : '均价未知'}</b>
+            <b style="color:${getPriceColor(c.ref_price)}">${c.ref_price != null ? (c.ref_price/10000).toFixed(1)+'万' : '均价未知'}</b>
             ${devTxt} · ${c.build_year ?? '—'}年 · ${c.district ?? ''}
           </div>
         </div>
@@ -699,7 +803,7 @@ const App = (() => {
       const age = target.build_year ? 2026 - target.build_year : null;
       infoWindow.setContent(`<div class="info-window">
         <div class="info-title">${escHtml(target.name)}</div>
-        <div class="info-row"><span class="info-key">💰 均价</span><span class="info-val">${target.avg_price != null ? fmtPrice(target.avg_price)+' 元/㎡' : '暂无'}</span></div>
+        <div class="info-row"><span class="info-key">💰 均价</span><span class="info-val">${target.ref_price != null ? fmtPrice(target.ref_price)+' 元/㎡' : '暂无'}</span></div>
         <div class="info-row"><span class="info-key">🏗 建成</span><span class="info-val">${target.build_year ?? '—'}${age ? `（${age}年）` : ''}</span></div>
       </div>`);
       infoWindow.open(map, new AMap.LngLat(lng, lat));
@@ -790,11 +894,25 @@ const App = (() => {
     });
   }
 
+  function openIsochroneMap() {
+    // 将当前工作地点同步到 localStorage，供 commute_iso.html 读取
+    localStorage.setItem('commuteTargets', JSON.stringify(commuteTargets));
+    const target = commuteTargets.filter(Boolean)[0];
+    let url = 'commute_iso.html';
+    if (target) {
+      url += `?lng=${target.lng}&lat=${target.lat}&name=${encodeURIComponent(target.name || '工作地点')}`;
+    }
+    window.open(url, '_blank');
+  }
+
   function clearCommute() {
     commuteTargets = [];
     commuteCache = {};
     commuteQueue = [];
     commuteRunning = false;
+    // 清除等时圈多边形
+    isochronePolygons.forEach(p => map && p.setMap(null));
+    isochronePolygons = [];
     [0, 1].forEach(i => {
       const el = document.getElementById(`commute-tag-${i}`);
       if (el) el.style.display = 'none';
@@ -803,6 +921,146 @@ const App = (() => {
     });
     renderByLOD();
     setStatus('通勤已清空');
+  }
+
+  // ── 等时圈 ─────────────────────────────────────────────────────────────────
+  // 用法：在「定位」目的地后点「画等时圈」
+  // 原理：从目标点向 16 个方向各查一次驾车/公交路径，
+  //       取每条路径 25min（驾车）/ 35min（公交）可达的点，连成多边形。
+  function drawIsochrone() {
+    const validTargets = commuteTargets.filter(Boolean);
+    if (!validTargets.length) {
+      alert('请先在「目的地」中输入地址并点击「定位」');
+      return;
+    }
+    if (!drivingService && !transitService) {
+      alert('路径规划服务未加载，请先加载地图');
+      return;
+    }
+
+    // 清除旧等时圈
+    isochronePolygons.forEach(p => p.setMap(null));
+    isochronePolygons = [];
+
+    const btn = document.getElementById('btn-draw-isochrone');
+    if (btn) btn.disabled = true;
+    setStatus('⏳ 计算等时圈...');
+
+    const DIRECTIONS = 16; // 采样方向数
+    const MAX_MIN_DRIVING = 25;  // 驾车 25 分钟
+    const MAX_MIN_TRANSIT = 35;  // 公交 35 分钟
+    const EARTH_R = 6371000;     // 地球半径（米）
+
+    // 根据通勤时间估算初始探测距离（米）
+    // 上海市区平均车速约 20km/h，公交约 15km/h
+    function estimateDist(mode) {
+      if (mode === 'driving') return (MAX_MIN_DRIVING / 60) * 20000; // ~8333m
+      return (MAX_MIN_TRANSIT / 60) * 15000; // ~8750m
+    }
+
+    // 从中心点出发，沿方位角 bearing（度），移动 dist（米），返回新坐标
+    function destPoint(lat, lng, bearing, dist) {
+      const rad = bearing * Math.PI / 180;
+      const dLat = (dist * Math.cos(rad)) / EARTH_R;
+      const dLng = (dist * Math.sin(rad)) / (EARTH_R * Math.cos(lat * Math.PI / 180));
+      return [lat + dLat * 180 / Math.PI, lng + dLng * 180 / Math.PI];
+    }
+
+    async function calcOneIsochrone(target, mode) {
+      const maxMins = mode === 'driving' ? MAX_MIN_DRIVING : MAX_MIN_TRANSIT;
+      const svc = mode === 'driving' ? drivingService : transitService;
+      const estimatedDist = estimateDist(mode);
+
+      const points = []; // 各方向的可达点
+
+      for (let i = 0; i < DIRECTIONS; i++) {
+        const bearing = (360 / DIRECTIONS) * i;
+        const [destLat, destLng] = destPoint(target.lat, target.lng, bearing, estimatedDist);
+        const dest = new AMap.LngLat(destLng, destLat);
+        const origin = new AMap.LngLat(target.lng, target.lat);
+
+        await new Promise(resolve => {
+          svc.search(origin, dest, (status, res) => {
+            if (status === 'complete') {
+              let mins;
+              if (mode === 'driving') {
+                mins = (res.routes?.[0]?.time ?? 0) / 60;
+              } else {
+                mins = (res.plans?.[0]?.time ?? 0) / 60;
+              }
+
+              if (mins > 0 && mins <= maxMins * 1.5) {
+                // 按比例缩放：如果实际 N 分钟到了 D 米，则 maxMins 分钟能到 D * maxMins/N 米
+                const ratio = maxMins / mins;
+                const scaledDist = estimatedDist * Math.min(ratio, 2.0); // 防止过度外推
+                const [adjLat, adjLng] = destPoint(target.lat, target.lng, bearing, scaledDist);
+                points.push(new AMap.LngLat(adjLng, adjLat));
+              } else {
+                // 路径失败，用估算点
+                points.push(dest);
+              }
+            } else {
+              points.push(new AMap.LngLat(destLng, destLat));
+            }
+            resolve();
+          });
+          // 限流
+          setTimeout(resolve, 800);
+        });
+        await new Promise(r => setTimeout(r, 200)); // 每个方向之间小延迟
+      }
+
+      if (points.length < 3) return;
+
+      // 绘制多边形
+      const color = mode === 'driving' ? '#2980B9' : '#27AE60';
+      const polygon = new AMap.Polygon({
+        path: points,
+        strokeColor: color,
+        strokeWeight: 2,
+        strokeOpacity: 0.8,
+        fillColor: color,
+        fillOpacity: 0.08,
+        zIndex: 50,
+      });
+      polygon.setMap(map);
+      isochronePolygons.push(polygon);
+
+      // 图例标签
+      const label = new AMap.Text({
+        text: mode === 'driving' ? `🚗 驾车${MAX_MIN_DRIVING}min` : `🚇 公交${MAX_MIN_TRANSIT}min`,
+        position: new AMap.LngLat(target.lng, target.lat),
+        offset: new AMap.Pixel(0, mode === 'driving' ? -15 : 15),
+        style: {
+          fontSize: '12px',
+          color: color,
+          background: 'rgba(255,255,255,0.8)',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          border: `1px solid ${color}`,
+        },
+      });
+      label.setMap(map);
+      isochronePolygons.push(label);
+    }
+
+    // 对每个目的地、每种模式各画一个等时圈
+    async function runAll() {
+      try {
+        for (const target of validTargets) {
+          if (drivingService) await calcOneIsochrone(target, 'driving');
+          if (transitService) await calcOneIsochrone(target, 'transit');
+        }
+        setStatus(`✅ 等时圈已绘制（蓝色=驾车${MAX_MIN_DRIVING}min，绿色=公交${MAX_MIN_TRANSIT}min）`);
+      } catch (e) {
+        setStatus('等时圈计算出错');
+        console.error(e);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    runAll();
   }
 
   // ── 收藏功能 ───────────────────────────────────────────────────────────────
@@ -857,7 +1115,7 @@ const App = (() => {
         <div class="result-info" onclick="App.flyTo(${c.lng},${c.lat},'${c.id}')" style="cursor:pointer">
           <div class="result-name">${escHtml(c.name)}</div>
           <div class="result-meta">
-            <b style="color:${color}">${c.avg_price != null ? (c.avg_price/10000).toFixed(1)+'万' : '均价未知'}</b>
+            <b style="color:${color}">${c.ref_price != null ? (c.ref_price/10000).toFixed(1)+'万' : '均价未知'}</b>
             ${devTxt} · ${c.build_year ?? '—'}年 · ${c.district ?? ''}
           </div>
         </div>
@@ -883,7 +1141,7 @@ const App = (() => {
       const dev = getDeviation(c);
       return [
         c.name, c.district??'', c.subdistrict??'',
-        c.avg_price??'', c.build_year??'',
+        c.ref_price??'', c.build_year??'',
         c.build_year ? 2026-c.build_year : '',
         dev != null ? dev+'%' : '',
         Q[getQuadrant(c)].label,
@@ -907,6 +1165,12 @@ const App = (() => {
           `<div class="legend-step"><div class="legend-dot" style="background:${v.color}"></div><span>${v.label}</span></div>`
         ).join('')
       }<div class="legend-step"><div class="legend-dot" style="background:#BDBDBD"></div><span>无数据</span></div></div>`;
+    } else if (ageOverlay) {
+      el.innerHTML = `<div class="legend-steps">${
+        AGE_TIERS.map(t =>
+          `<div class="legend-step"><div class="legend-dot" style="background:${t.color};border-radius:2px"></div><span>${t.label}</span></div>`
+        ).join('')
+      }</div>`;
     } else {
       el.innerHTML = `<div class="legend-steps">${
         PRICE_TIERS.map((t, i) => {
@@ -920,9 +1184,9 @@ const App = (() => {
   // ── 统计 ──────────────────────────────────────────────────────────────────
   function updateStats() {
     document.getElementById('stat-total').textContent = filteredData.length;
-    const wp = filteredData.filter(c => c.avg_price != null);
+    const wp = filteredData.filter(c => c.ref_price != null);
     document.getElementById('stat-avg-price').textContent =
-      wp.length ? (wp.reduce((s,c)=>s+c.avg_price,0)/wp.length/10000).toFixed(1)+'万' : '—';
+      wp.length ? (wp.reduce((s,c)=>s+c.ref_price,0)/wp.length/10000).toFixed(1)+'万' : '—';
     const valleys = allData.filter(c => getQuadrant(c) === 'valley');
     document.getElementById('stat-valley').textContent = valleys.length;
   }
@@ -965,11 +1229,11 @@ const App = (() => {
   });
 
   return {
-    initMap, setMode, switchTab,
+    initMap, setMode, toggleAgeOverlay, switchTab,
     applyFilters, onPriceRangeChange, onYearRangeChange, resetFilters,
     openFilePicker, flyTo, exportCsv,
     toggleHeatmap, toggleRings, toggleValleyMode,
-    addCommuteTarget, calcCommute, clearCommute,
+    addCommuteTarget, calcCommute, clearCommute, drawIsochrone, openIsochroneMap,
     toggleFavorite,
   };
 

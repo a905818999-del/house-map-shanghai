@@ -1,0 +1,30 @@
+{
+  "name": "house-map",
+  "version": "1.0.0",
+  "description": "上海房源地图 — 可视化展示上海各区房源数据，叠加地图信息辅助选房决策。",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx http-server . -p 8900 -o /src/",
+    "dev": "npx http-server . -p 8900 -o /src/commute_iso.html",
+    "verify:data": "node -e \"const d=require('./data/processed/communities.json'); console.log('communities:', d.communities.length, '| updated:', d._meta.last_updated)\"",
+    "verify:py": "python -m py_compile scripts/process.py && python -m py_compile scripts/merge_ref_price.py && python -m py_compile scripts/filter_commute_targets.py && echo 'Python scripts OK'",
+    "verify": "npm run verify:data && npm run verify:py",
+    "test": "echo \"No automated tests\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a905818999-del/house-map-shanghai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/a905818999-del/house-map-shanghai/issues"
+  },
+  "homepage": "https://github.com/a905818999-del/house-map-shanghai#readme",
+  "dependencies": {
+    "d3-delaunay": "^6.0.4",
+    "playwright": "^1.59.1"
+  }
+}

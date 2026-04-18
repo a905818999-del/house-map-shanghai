@@ -441,16 +441,9 @@ def main():
     for c in deduped:
         c["district"] = _normalize_district(c.get("district")) or c.get("district")
 
-    # WGS-84 → GCJ-02 坐标转换
-    converted = 0
-    for c in deduped:
-        old_lat, old_lng = c["lat"], c["lng"]
-        new_lat, new_lng = wgs84_to_gcj02(old_lat, old_lng)
-        if abs(new_lat - old_lat) > 0.0001 or abs(new_lng - old_lng) > 0.0001:
-            converted += 1
-        c["lat"] = new_lat
-        c["lng"] = new_lng
-    log(f"坐标转换 WGS-84→GCJ-02: {converted} 个有显著偏移")
+    # 链家/wxxw2002 爬虫坐标直接来自高德地图前端，已是 GCJ-02，无需转换。
+    # 历史上曾错误地对这些坐标再做 WGS-84→GCJ-02，导致约 500m 偏移，已修复。
+    log("坐标系: 链家数据已是 GCJ-02，跳过转换")
 
     # 统计
     with_price = sum(1 for c in deduped if c.get("avg_price"))
