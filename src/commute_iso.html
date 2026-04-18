@@ -231,53 +231,64 @@
 
   <div id="legend">
     <h4>通勤时间（分钟）</h4>
-    <div style="width:140px;height:12px;border-radius:4px;margin-bottom:6px;background:linear-gradient(to right,rgb(26,150,65),rgb(116,196,118),rgb(199,233,173),rgb(247,229,106),rgb(244,133,79),rgb(215,25,28));opacity:0.85"></div>
-    <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e">
-      <span>0</span><span>15</span><span>25</span><span>35</span><span>45</span><span>55+</span>
+    <div style="width:140px;height:12px;border-radius:4px;margin-bottom:6px;background:linear-gradient(to right,rgb(26,150,65),rgb(90,200,90),rgb(199,233,173),rgb(247,229,106),rgb(244,110,55),rgb(215,25,28));opacity:0.85"></div>
+    <div id="legend-labels" style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e">
+      <span>0</span><span>12</span><span>30</span><span>48</span><span>60+</span>
     </div>
   </div>
 </div>
 
 <script>
 // ── 颜色配置（5分钟颗粒度，连续色阶）────────────────────────────────────────
-// 色阶锚点：[minutes, r, g, b]
-const COLOR_STOPS = [
-  [0,   26, 150, 65],   // 深绿
-  [15,  116, 196, 118], // 绿
-  [25,  199, 233, 173], // 浅绿
-  [35,  247, 229, 106], // 黄
-  [45,  244, 133, 79],  // 橙
-  [55,  215, 25,  28],  // 红
-  [90,  130, 0,   10],  // 深红（超长）
+// 色阶上限：driving 用 60min，transit 用 120min（公交含步行段，普遍偏长）
+const SCALE_MAX = { driving: 60, transit: 120 };
+let currentScaleMax = 60;
+
+// 色阶锚点：0~1 归一化位置 + rgb
+const COLOR_STOPS_NORM = [
+  [0.00, 26,  150, 65],   // 深绿  (0min)
+  [0.20, 90,  200, 90],   // 绿    (12min@60 / 24min@120)
+  [0.35, 199, 233, 173],  // 浅绿
+  [0.50, 247, 229, 106],  // 黄
+  [0.65, 244, 180, 79],   // 橙黄
+  [0.80, 244, 110, 55],   // 橙红
+  [1.00, 215, 25,  28],   // 红
 ];
 
 function minutesToColor(minutes) {
   if (minutes == null) return '#888888';
-  const m = Math.min(minutes, 90);
-  // 找到区间
-  let lo = COLOR_STOPS[0], hi = COLOR_STOPS[COLOR_STOPS.length - 1];
-  for (let i = 0; i < COLOR_STOPS.length - 1; i++) {
-    if (m >= COLOR_STOPS[i][0] && m <= COLOR_STOPS[i+1][0]) {
-      lo = COLOR_STOPS[i]; hi = COLOR_STOPS[i+1]; break;
+  // 超出上限统一显示深红
+  if (minutes > currentScaleMax) return 'rgb(160,10,10)';
+  const t = Math.max(0, Math.min(1, minutes / currentScaleMax));
+  let lo = COLOR_STOPS_NORM[0], hi = COLOR_STOPS_NORM[COLOR_STOPS_NORM.length - 1];
+  for (let i = 0; i < COLOR_STOPS_NORM.length - 1; i++) {
+    if (t >= COLOR_STOPS_NORM[i][0] && t <= COLOR_STOPS_NORM[i+1][0]) {
+      lo = COLOR_STOPS_NORM[i]; hi = COLOR_STOPS_NORM[i+1]; break;
     }
   }
-  const t = lo[0] === hi[0] ? 1 : (m - lo[0]) / (hi[0] - lo[0]);
-  const r = Math.round(lo[1] + (hi[1] - lo[1]) * t);
-  const g = Math.round(lo[2] + (hi[2] - lo[2]) * t);
-  const b = Math.round(lo[3] + (hi[3] - lo[3]) * t);
+  const s = lo[0] === hi[0] ? 1 : (t - lo[0]) / (hi[0] - lo[0]);
+  const r = Math.round(lo[1] + (hi[1] - lo[1]) * s);
+  const g = Math.round(lo[2] + (hi[2] - lo[2]) * s);
+  const b = Math.round(lo[3] + (hi[3] - lo[3]) * s);
   return `rgb(${r},${g},${b})`;
 }
 
-// 旧 tier 兼容（用于点击 label）
-const TIER_LABELS = ['≤15 min', '15–25 min', '25–35 min', '35–45 min', '45–55 min', '55+ min'];
 function minutesToTierLabel(m) {
   if (m == null) return '未知';
-  if (m <= 15) return TIER_LABELS[0];
-  if (m <= 25) return TIER_LABELS[1];
-  if (m <= 35) return TIER_LABELS[2];
-  if (m <= 45) return TIER_LABELS[3];
-  if (m <= 55) return TIER_LABELS[4];
-  return TIER_LABELS[5];
+  if (m <= 15) return '≤15 min';
+  if (m <= 25) return '15–25 min';
+  if (m <= 35) return '25–35 min';
+  if (m <= 45) return '35–45 min';
+  if (m <= 55) return '45–55 min';
+  return `${m} min`;
+}
+
+// 更新图例色条
+function updateLegend(mode) {
+  const max = SCALE_MAX[mode];
+  const mid = max / 2;
+  const leg = document.getElementById('legend-labels');
+  if (leg) leg.innerHTML = `<span>0</span><span>${Math.round(max*0.2)}</span><span>${Math.round(max*0.5)}</span><span>${Math.round(max*0.8)}</span><span>${max}+</span>`;
 }
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
@@ -432,6 +443,8 @@ function renderIsochrone(data) {
 // ── 切换模式 ─────────────────────────────────────────────────────────────────
 async function switchMode(mode) {
   currentMode = mode;
+  currentScaleMax = SCALE_MAX[mode];
+  updateLegend(mode);
 
   document.querySelectorAll('.mode-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.mode === mode);
@@ -506,6 +519,8 @@ function init() {
 
   // 先加载数据，从数据 _meta 读目标坐标；localStorage 作为 fallback
   setStatus('加载数据…', 'loading');
+  currentScaleMax = SCALE_MAX[currentMode];
+  updateLegend(currentMode);
   loadData(currentMode).then(data => {
     if (data) {
       document.getElementById('no-data').style.display = 'none';
