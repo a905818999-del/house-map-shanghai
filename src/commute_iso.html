@@ -304,7 +304,8 @@ async function loadData(mode) {
 }
 
 function clearLayers() {
-  if (isoLayers.length > 0) map.remove(isoLayers);
+  if (isoLayers.length === 0) return;
+  map.remove(isoLayers);
   isoLayers = [];
 }
 
@@ -368,61 +369,34 @@ function renderVoronoi(points) {
 }
 
 // ── 标签模式（zoom >= ZOOM_DETAIL）───────────────────────────────────────────
-//
-// 每个小区显示一个彩色圆底 + 小区名 + 分钟数的 Marker
-//
 function renderLabels(points) {
-  // 只渲染地图可视范围内的点，避免性能问题
   const bounds = map.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
   const visible = points.filter(p =>
-    p.lat >= bounds.getSouthWest().lat - 0.02 &&
-    p.lat <= bounds.getNorthEast().lat + 0.02 &&
-    p.lng >= bounds.getSouthWest().lng - 0.02 &&
-    p.lng <= bounds.getNorthEast().lng + 0.02
+    p.lat >= sw.lat - 0.02 && p.lat <= ne.lat + 0.02 &&
+    p.lng >= sw.lng - 0.02 && p.lng <= ne.lng + 0.02
   );
 
   const markers = visible.map(p => {
     const color = TIER_COLORS[p.tier];
-    const content = `
-      <div style="
-        background:${color};
-        border-radius:4px;
-        padding:3px 7px;
-        font-size:11px;
-        line-height:1.5;
-        color:${p.tier <= 2 ? '#1a2a1a' : '#1a1a1a'};
-        white-space:nowrap;
-        box-shadow:0 1px 4px rgba(0,0,0,0.5);
-        opacity:0.92;
-        cursor:pointer;
-      ">
-        <div style="font-weight:600">${p.name}</div>
-        <div style="font-size:10px">${p.minutes ?? '–'} 分钟</div>
-      </div>`;
-
+    const content = `<div style="background:${color};border-radius:4px;padding:3px 7px;font-size:11px;line-height:1.5;color:${p.tier <= 2 ? '#1a2a1a' : '#1a1a1a'};white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:.92;cursor:pointer"><div style="font-weight:600">${p.name}</div><div style="font-size:10px">${p.minutes ?? '–'} 分钟</div></div>`;
     const m = new AMap.Marker({
       position: [p.lng, p.lat],
       content,
       offset: new AMap.Pixel(-30, -22),
       zIndex: 50,
     });
-
     m.on('click', () => {
       if (!infoWindow) infoWindow = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -8) });
-      infoWindow.setContent(
-        `<div style="padding:8px 10px;font-size:13px;line-height:1.8;color:#222">
-          <b>${p.name}</b><br>
-          通勤时间: <b>${p.minutes ?? '–'} 分钟</b><br>
-          <span style="color:${color};font-weight:600">${TIER_LABELS[p.tier]}</span>
-        </div>`
-      );
+      infoWindow.setContent(`<div style="padding:8px 10px;font-size:13px;line-height:1.8;color:#222"><b>${p.name}</b><br>通勤时间: <b>${p.minutes ?? '–'} 分钟</b><br><span style="color:${color};font-weight:600">${TIER_LABELS[p.tier]}</span></div>`);
       infoWindow.open(map, [p.lng, p.lat]);
     });
-
     return m;
   });
 
-  map.add(markers);
+  // 一次性批量添加，避免逐个 DOM 操作
+  if (markers.length > 0) map.add(markers);
   isoLayers = markers;
 }
 
@@ -436,17 +410,14 @@ function renderIsochrone(data, forceRebuild = false) {
   const zoom = map.getZoom();
   const newMode = zoom < ZOOM_DETAIL ? 'voronoi' : 'labels';
 
-  // Voronoi 模式：只有首次或强制重建才销毁重建（缩放不过阈值不重建）
   if (newMode === 'voronoi') {
     if (lastRenderMode === 'voronoi' && !forceRebuild) return;
     clearLayers();
     setStatus(`渲染 ${points.length} 个小区…`, 'loading');
     renderVoronoi(points);
   } else {
-    // 标签模式：每次平移/缩放进来都刷新可视区域（但 Voronoi→labels 需先清除）
-    if (lastRenderMode === 'voronoi') clearLayers();
-    else clearLayers();  // labels 也需清除旧 markers，但代价小（可视区域内）
-    setStatus(`渲染中…`, 'loading');
+    clearLayers();
+    setStatus('渲染中…', 'loading');
     renderLabels(points);
   }
 
@@ -519,9 +490,12 @@ function init() {
         : storageTarget;
       if (target) {
         placeTargetMarker(target);
+        // 等地图平移到目标位置完成后再渲染，避免像素坐标计算错误
         map.setCenter([target.lng, target.lat]);
+        map.once('moveend', () => renderIsochrone(data));
+      } else {
+        renderIsochrone(data);
       }
-      renderIsochrone(data);
     } else {
       const target = getTargetFromStorage();
       if (target) { placeTargetMarker(target); map.setCenter([target.lng, target.lat]); }
