@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Geocoder Batch</title></head>
+<body>
+<div id="status">Loading...</div>
+<script>
+window._results = [];
+window._done = false;
+window._progress = 0;
+</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=1cf0650cf8cc24f862e1d3a1d023b93c&plugin=AMap.Geocoder"></script>
+<script>
+window._securityJsCode = 'e808269f0141b67e76ee446b1542b3c0';
+</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=1cf0650cf8cc24f862e1d3a1d023b93c&plugin=AMap.Geocoder&jscode=e808269f0141b67e76ee446b1542b3c0" onerror="console.error('amap load error')"></script>
+<script>
+async function runBatch(communities, threshold) {
+    const geocoder = new AMap.Geocoder({city: '上海', radius: 3000});
+    const bad = [];
+    const errors = [];
+
+    function geocodeOne(item) {
+        return new Promise(resolve => {
+            geocoder.getLocation(item.n, function(status, res) {
+                if (status === 'complete' && res.geocodes && res.geocodes.length > 0) {
+                    const g = res.geocodes[0];
+                    const dlat = (g.location.lat - item.lat) * 111000;
+                    const dlng = (g.location.lng - item.lng) * 111000 * 0.87;
+                    const dist = Math.sqrt(dlat*dlat + dlng*dlng);
+                    resolve({
+                        name: item.n,
+                        cur_lat: item.lat, cur_lng: item.lng,
+                        geo_lat: g.location.lat, geo_lng: g.location.lng,
+                        addr: g.formattedAddress,
+                        dist_m: Math.round(dist),
+                        ok: dist <= threshold
+                    });
+                } else {
+                    resolve({name: item.n, cur_lat: item.lat, cur_lng: item.lng, error: true});
+                }
+            });
+        });
+    }
+
+    const CONCURRENCY = 5;
+    for (let i = 0; i < communities.length; i += CONCURRENCY) {
+        const batch = communities.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.all(batch.map(geocodeOne));
+        for (const r of batchResults) {
+            if (r.error) errors.push(r.name);
+            else if (!r.ok) bad.push(r);
+        }
+        window._progress = i + batch.length;
+        document.getElementById('status').textContent =
+            `Progress: ${window._progress}/${communities.length} | Bad: ${bad.length} | Errors: ${errors.length}`;
+        await new Promise(r => setTimeout(r, 100)); // yield
+    }
+
+    window._results = {bad, errors};
+    window._done = true;
+    document.getElementById('status').textContent =
+        `DONE: ${communities.length} checked | Bad(>500m): ${bad.length} | Errors: ${errors.length}`;
+}
+</script>
+</body>
+</html>
