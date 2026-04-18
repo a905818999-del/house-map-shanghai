@@ -2,111 +2,96 @@
 """
 merge_ref_price.py
 ==================
-将外部参考均价数据（链家成交价 / WorkBuddy 抓取）合并进 communities.json。
+将链家参考均价（fetch_lianjia_ref_price.mjs 输出）合并进 communities.json。
 
 用法
 ----
-    python scripts/merge_ref_price.py \
-        --communities data/processed/communities.json \
-        --ref         data/ref_prices.csv \
-        --output      data/processed/communities.json
+    # 自动查找 data/raw/lianjia_ref_price_commute_*.json 并合并
+    python scripts/merge_ref_price.py
 
-ref_prices.csv 格式（UTF-8，含表头）
--------------------------------------
-    name,ref_price
-    "世茂滨江花园",85000
-    "中远两湾城",62000
-    ...
+    # 指定具体文件
+    python scripts/merge_ref_price.py --ref data/raw/lianjia_ref_price_commute_targets_20260416.json
 
 说明
 ----
-- 按小区名精确匹配；匹配不到的小区不修改 avg_price。
-- 若原 avg_price 为 null（暂无数据），用 ref_price 填入。
-- 若原 avg_price 已有值，ref_price 将覆盖（可通过 --no-overwrite 关闭）。
-- 合并后写回 JSON，保留所有其他字段。
+- 以 source_url 为 key 精确匹配（不依赖小区名）
+- 新增 ref_price 字段，保留原 avg_price 不变
+- 合并后写回 communities.json
 """
 
 import argparse
-import csv
 import json
+import glob
 import sys
 from pathlib import Path
+from datetime import datetime
 
-
-def load_ref_prices(ref_path: Path) -> dict[str, float]:
-    """读取参考均价 CSV，返回 {name: price} 字典。"""
-    prices: dict[str, float] = {}
-    with open(ref_path, encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        if "name" not in (reader.fieldnames or []) or "ref_price" not in (reader.fieldnames or []):
-            sys.exit("CSV 必须包含 'name' 和 'ref_price' 列")
-        for row in reader:
-            name = row["name"].strip()
-            try:
-                price = float(row["ref_price"])
-            except (ValueError, TypeError):
-                print(f"[warn] 跳过无效价格行: {row}", file=sys.stderr)
-                continue
-            prices[name] = price
-    return prices
-
-
-def merge(communities: list[dict], ref_prices: dict[str, float], overwrite: bool) -> tuple[int, int]:
-    """原地合并，返回 (matched, updated)。"""
-    matched = updated = 0
-    for c in communities:
-        name = c.get("name", "")
-        if name in ref_prices:
-            matched += 1
-            ref = ref_prices[name]
-            if c.get("avg_price") is None or overwrite:
-                c["avg_price"] = ref
-                updated += 1
-    return matched, updated
+ROOT = Path(__file__).parent.parent
 
 
 def main():
-    parser = argparse.ArgumentParser(description="合并参考均价到 communities.json")
-    parser.add_argument("--communities", default="data/processed/communities.json",
-                        help="输入 communities.json 路径")
-    parser.add_argument("--ref", required=True,
-                        help="参考均价 CSV 路径（含 name, ref_price 列）")
-    parser.add_argument("--output", default=None,
-                        help="输出路径（默认覆盖 --communities）")
-    parser.add_argument("--no-overwrite", action="store_true",
-                        help="仅填充 avg_price 为 null 的记录，已有值的不覆盖")
+    parser = argparse.ArgumentParser(description="合并链家参考均价到 communities.json")
+    parser.add_argument("--ref", default=None, help="参考均价 JSON 文件路径（默认自动查找）")
+    parser.add_argument("--communities", default=str(ROOT / "data/processed/communities.json"))
     args = parser.parse_args()
 
+    # 查找参考均价文件
+    if args.ref:
+        files = [args.ref]
+    else:
+        pattern = str(ROOT / 'data/raw/lianjia_ref_price_commute_*.json')
+        files = sorted(glob.glob(pattern))
+        if not files:
+            pattern2 = str(ROOT / 'data/raw/lianjia_ref_price_*.json')
+            files = sorted(glob.glob(pattern2))
+
+    if not files:
+        sys.exit('未找到参考均价文件，请先运行 fetch_lianjia_ref_price.mjs')
+
+    print(f'找到 {len(files)} 个参考均价文件:')
+    for f in files:
+        print(f'  {f}')
+
+    # 加载参考均价，以 source_url 为 key
+    ref_map = {}
+    for fpath in files:
+        with open(fpath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for entry in data.get('ref_prices', []):
+            url = entry.get('source_url')
+            price = entry.get('ref_price')
+            if url and price is not None:
+                ref_map[url] = price
+
+    print(f'加载参考均价: {len(ref_map)} 条')
+
+    # 读取 communities.json
     comm_path = Path(args.communities)
-    ref_path = Path(args.ref)
-    out_path = Path(args.output) if args.output else comm_path
+    with open(comm_path, 'r', encoding='utf-8') as f:
+        comm_data = json.load(f)
 
-    if not comm_path.exists():
-        sys.exit(f"找不到 communities.json: {comm_path}")
-    if not ref_path.exists():
-        sys.exit(f"找不到参考均价 CSV: {ref_path}")
+    communities = comm_data['communities']
+    print(f'小区总数: {len(communities)}')
 
-    print(f"加载 {comm_path} …")
-    with open(comm_path, encoding="utf-8") as f:
-        data = json.load(f)
+    # 合并
+    updated = 0
+    for c in communities:
+        url = c.get('source_url', '')
+        if url in ref_map:
+            c['ref_price'] = ref_map[url]
+            updated += 1
+        elif 'ref_price' not in c:
+            c['ref_price'] = None
 
-    # 兼容两种结构：列表 或 {"communities": [...]}
-    communities = data if isinstance(data, list) else data.get("communities", data)
+    print(f'更新 ref_price: {updated} 个小区 ({updated/len(communities)*100:.1f}%)')
 
-    print(f"加载参考均价 {ref_path} …")
-    ref_prices = load_ref_prices(ref_path)
-    print(f"  参考均价记录: {len(ref_prices)} 条")
+    comm_data['_meta']['ref_price_updated_at'] = datetime.now().isoformat()
+    comm_data['_meta']['ref_price_count'] = updated
 
-    overwrite = not args.no_overwrite
-    matched, updated = merge(communities, ref_prices, overwrite)
+    with open(comm_path, 'w', encoding='utf-8') as f:
+        json.dump(comm_data, f, ensure_ascii=False, separators=(',', ':'))
 
-    print(f"  匹配小区: {matched} 个 | 更新 avg_price: {updated} 个")
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    print(f"已写出 → {out_path}")
+    print(f'已写入: {comm_path}')
 
 
 if __name__ == "__main__":
