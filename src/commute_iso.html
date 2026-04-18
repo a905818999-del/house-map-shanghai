@@ -239,38 +239,50 @@
 </div>
 
 <script>
-// ── 颜色配置（5分钟颗粒度，连续色阶）────────────────────────────────────────
-// 色阶上限：driving 用 60min，transit 用 120min（公交含步行段，普遍偏长）
+// ── 颜色配置（按模式独立色阶）────────────────────────────────────────────────
+// driving: 上限60min；transit: 上限120min，锚点按实际分布(p10=53,p50=81,p90=121)对齐
 const SCALE_MAX = { driving: 60, transit: 120 };
 let currentScaleMax = 60;
 
-// 色阶锚点：0~1 归一化位置 + rgb
-const COLOR_STOPS_NORM = [
-  [0.00, 26,  150, 65],   // 深绿  (0min)
-  [0.20, 90,  200, 90],   // 绿    (12min@60 / 24min@120)
-  [0.35, 199, 233, 173],  // 浅绿
-  [0.50, 247, 229, 106],  // 黄
-  [0.65, 244, 180, 79],   // 橙黄
-  [0.80, 244, 110, 55],   // 橙红
-  [1.00, 215, 25,  28],   // 红
-];
+// 各模式独立锚点：[分钟数, r, g, b]，直接用绝对分钟数
+const COLOR_STOPS = {
+  driving: [
+    [ 0,  26, 150,  65],  // 深绿
+    [15,  90, 200,  90],  // 绿
+    [25, 199, 233, 173],  // 浅绿
+    [35, 247, 229, 106],  // 黄
+    [45, 244, 180,  79],  // 橙黄
+    [55, 244, 110,  55],  // 橙红
+    [60, 215,  25,  28],  // 红
+  ],
+  transit: [
+    [ 0,  26, 150,  65],  // 深绿
+    [30,  90, 200,  90],  // 绿     ← p10附近
+    [50, 199, 233, 173],  // 浅绿   ← p25
+    [70, 247, 229, 106],  // 黄     ← p50附近
+    [90, 244, 180,  79],  // 橙黄   ← p75
+    [110,244, 110,  55],  // 橙红   ← p90
+    [120,215,  25,  28],  // 红
+  ],
+};
+let currentStops = COLOR_STOPS.driving;
 
 function minutesToColor(minutes) {
   if (minutes == null) return '#888888';
-  // 超出上限统一显示深红
-  if (minutes > currentScaleMax) return 'rgb(160,10,10)';
-  const t = Math.max(0, Math.min(1, minutes / currentScaleMax));
-  let lo = COLOR_STOPS_NORM[0], hi = COLOR_STOPS_NORM[COLOR_STOPS_NORM.length - 1];
-  for (let i = 0; i < COLOR_STOPS_NORM.length - 1; i++) {
-    if (t >= COLOR_STOPS_NORM[i][0] && t <= COLOR_STOPS_NORM[i+1][0]) {
-      lo = COLOR_STOPS_NORM[i]; hi = COLOR_STOPS_NORM[i+1]; break;
+  const stops = currentStops;
+  const max = currentScaleMax;
+  if (minutes >= max) return `rgb(${stops[stops.length-1].slice(1).join(',')})`;
+  // 在锚点间线性插值
+  for (let i = 1; i < stops.length; i++) {
+    if (minutes <= stops[i][0]) {
+      const t = (minutes - stops[i-1][0]) / (stops[i][0] - stops[i-1][0]);
+      const r = Math.round(stops[i-1][1] + t*(stops[i][1]-stops[i-1][1]));
+      const g = Math.round(stops[i-1][2] + t*(stops[i][2]-stops[i-1][2]));
+      const b = Math.round(stops[i-1][3] + t*(stops[i][3]-stops[i-1][3]));
+      return `rgb(${r},${g},${b})`;
     }
   }
-  const s = lo[0] === hi[0] ? 1 : (t - lo[0]) / (hi[0] - lo[0]);
-  const r = Math.round(lo[1] + (hi[1] - lo[1]) * s);
-  const g = Math.round(lo[2] + (hi[2] - lo[2]) * s);
-  const b = Math.round(lo[3] + (hi[3] - lo[3]) * s);
-  return `rgb(${r},${g},${b})`;
+  return `rgb(${stops[stops.length-1].slice(1).join(',')})`;
 }
 
 function minutesToTierLabel(m) {
@@ -285,10 +297,16 @@ function minutesToTierLabel(m) {
 
 // 更新图例色条
 function updateLegend(mode) {
-  const max = SCALE_MAX[mode];
-  const mid = max / 2;
+  const stops = COLOR_STOPS[mode];
+  const labels = stops.map(s => s[0]);
   const leg = document.getElementById('legend-labels');
-  if (leg) leg.innerHTML = `<span>0</span><span>${Math.round(max*0.2)}</span><span>${Math.round(max*0.5)}</span><span>${Math.round(max*0.8)}</span><span>${max}+</span>`;
+  if (leg) leg.innerHTML = labels.map((v,i) => `<span>${i===labels.length-1?v+'+':v}</span>`).join('');
+  // 更新渐变条颜色
+  const bar = document.querySelector('#legend > div[style]');
+  if (bar) {
+    const gradStops = stops.map((s,i) => `rgb(${s[1]},${s[2]},${s[3]}) ${Math.round(i/(stops.length-1)*100)}%`).join(',');
+    bar.style.background = `linear-gradient(to right,${gradStops})`;
+  }
 }
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
@@ -444,6 +462,7 @@ function renderIsochrone(data) {
 async function switchMode(mode) {
   currentMode = mode;
   currentScaleMax = SCALE_MAX[mode];
+  currentStops = COLOR_STOPS[mode];
   updateLegend(mode);
 
   document.querySelectorAll('.mode-tab').forEach(t => {
@@ -520,6 +539,7 @@ function init() {
   // 先加载数据，从数据 _meta 读目标坐标；localStorage 作为 fallback
   setStatus('加载数据…', 'loading');
   currentScaleMax = SCALE_MAX[currentMode];
+  currentStops = COLOR_STOPS[currentMode];
   updateLegend(currentMode);
   loadData(currentMode).then(data => {
     if (data) {
