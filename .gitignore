@@ -45,6 +45,10 @@ data/raw/*.log
 # 大型处理数据（boundaries 约 20MB，不入库）
 data/processed/boundaries.json
 
+# geocoding 中间产物（不入库）
+data/processed/*.bak
+data/processed/geocode_results.json
+
 # 外部参考数据（大文件/调试产物，不入库）
 data/external/dataset.csv
 data/external/screenshot.png

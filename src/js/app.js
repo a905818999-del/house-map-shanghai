@@ -712,6 +712,22 @@ const m = new AMap.Marker({
     updateResultsList();
   }
 
+  function toggleIsochroneOverlay() {
+    const visible = isochronePolygons.length && isochronePolygons[0].getMap();
+    const btn = document.getElementById('btn-iso-overlay');
+    if (visible) {
+      isochronePolygons.forEach(p => p.setMap(null));
+      if (btn) btn.classList.remove('active');
+    } else {
+      if (!isochronePolygons.length) {
+        alert('请先在「通勤」面板中输入目的地并点击「画等时圈」');
+        return;
+      }
+      isochronePolygons.forEach(p => p.setMap(map));
+      if (btn) btn.classList.add('active');
+    }
+  }
+
   function toggleAgeOverlay() {
     ageOverlay = !ageOverlay;
     document.getElementById('mode-year')?.classList.toggle('active', ageOverlay);
@@ -1224,7 +1240,7 @@ const m = new AMap.Marker({
   });
 
   return {
-    initMap, setMode, toggleAgeOverlay, switchTab,
+    initMap, setMode, toggleAgeOverlay, toggleIsochroneOverlay, switchTab,
     applyFilters, onPriceRangeChange, onYearRangeChange, resetFilters,
     openFilePicker, flyTo, exportCsv,
     toggleHeatmap, toggleRings, toggleValleyMode,
