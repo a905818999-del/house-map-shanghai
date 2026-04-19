@@ -423,14 +423,9 @@ const App = (() => {
     if (!map) return;
     const zoom = map.getZoom();
 
-    // 楼龄叠加层（独立于 marker 模式）
-    if (ageOverlay) {
-      if (zoom >= ZOOM_HEATMAP_ONLY) renderAgeLayer(zoom);
-      else clearAgePolygons();
-    }
-
-    // 其他模式：照旧走 marker 路径（ageOverlay 开时多边形保留）
-    if (!ageOverlay) clearAgePolygons();
+    // 楼龄叠加层：在所有 LOD 分支之前处理，不受 zoom 限制
+    if (ageOverlay) renderAgeLayer(zoom);
+    else clearAgePolygons();
 
     if (zoom < ZOOM_HEATMAP_ONLY) {
       clearMarkers();
